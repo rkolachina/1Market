@@ -11,7 +11,8 @@
     "copy:test": "AWS_REGION=us-east-1 tsx scripts/copy-test.ts",
     "agent": "AWS_REGION=us-east-1 tsx scripts/agent.ts",
     "api": "AWS_REGION=us-east-1 tsx watch api/dev.ts",
-    "web": "cd web && npx vite"
+    "web": "cd web && npx vite",
+    "seed:drafts": "AWS_REGION=us-east-1 tsx scripts/seed-drafts.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
