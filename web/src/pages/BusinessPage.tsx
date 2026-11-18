@@ -5,7 +5,9 @@ import { ListEditor, Section, TagInput, TextArea, TextField } from "../component
 import { ErrorBlock, LoadingBlock, PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
 import { api, type Profile } from "../lib/api";
+import { authEnabled } from "../lib/auth";
 import { useProfile } from "../lib/queries";
+import { useSession } from "../lib/session";
 
 type Service = { name: string; price: string; notes: string };
 type Offer = { name: string; details: string; valid_until: string };
@@ -268,6 +270,8 @@ function BusinessForm({ profile }: { profile: Profile }) {
         </ul>
       </Section>
 
+      <AccountSection />
+
       {dirty && (
         <div className="fixed inset-x-0 bottom-[76px] z-10 border-t border-rule bg-card/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:left-56">
           <div className="mx-auto flex max-w-[640px] items-center gap-2">
@@ -282,5 +286,26 @@ function BusinessForm({ profile }: { profile: Profile }) {
         </div>
       )}
     </form>
+  );
+}
+
+function AccountSection() {
+  const { account, signOut } = useSession();
+  return (
+    <Section title="Your account">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <span className="font-bold">{account?.name ?? "Signed in"}</span>
+          <span className="meta normal-case">{account?.email}</span>
+        </div>
+        {authEnabled ? (
+          <button type="button" className="btn-secondary" onClick={() => signOut()}>
+            Log out
+          </button>
+        ) : (
+          <span className="text-[13px] text-ink-muted">Login is off in local dev</span>
+        )}
+      </div>
+    </Section>
   );
 }
