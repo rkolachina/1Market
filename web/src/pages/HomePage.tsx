@@ -1,6 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { Squiggle } from "../components/Squiggle";
-import { api, type Draft, type Profile } from "../lib/api";
+import { Link } from "react-router";
+import { DraftCard } from "../components/DraftCard";
+import { ErrorBlock, LoadingBlock, PageHeader } from "../components/PageHeader";
+import { RequestBox } from "../components/RequestBox";
+import { formatWhen } from "../lib/format";
+import { useAllDrafts, useProfile } from "../lib/queries";
+import { displayStatus, draftDate } from "../lib/status";
 
 function greeting(now = new Date()) {
   const h = now.getHours();
@@ -10,30 +14,52 @@ function greeting(now = new Date()) {
 }
 
 export function HomePage() {
-  const profile = useQuery({ queryKey: ["profile"], queryFn: () => api.get<Profile>("/profile") });
-  const pending = useQuery({ queryKey: ["drafts", "pending"], queryFn: () => api.get<Draft[]>("/drafts?status=pending") });
+  const profile = useProfile();
+  const drafts = useAllDrafts();
 
-  const count = pending.data?.length ?? 0;
+  const all = drafts.data ?? [];
+  const needsOk = all
+    .filter((d) => ["needs-ok", "missed"].includes(displayStatus(d)))
+    // missed first, then soonest date
+    .sort((a, b) => {
+      const am = displayStatus(a) === "missed" ? 0 : 1;
+      const bm = displayStatus(b) === "missed" ? 0 : 1;
+      return am - bm || draftDate(a).localeCompare(draftDate(b));
+    });
+  const next = all
+    .filter((d) => displayStatus(d) === "scheduled")
+    .sort((a, b) => draftDate(a).localeCompare(draftDate(b)))[0];
+
+  const count = needsOk.length;
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <p className="text-[15px] text-ink-muted">{profile.data?.name ?? " "}</p>
-        <h1 className="text-[32px] font-semibold">{greeting()}.</h1>
-        <Squiggle />
-        <p className="mt-1 text-ink-muted">
-          {pending.isLoading
-            ? "Checking your posts…"
-            : count === 0
-              ? "Nothing needs your OK right now. Nice."
-              : `${count} ${count === 1 ? "post needs" : "posts need"} your OK.`}
-        </p>
-      </header>
+      <PageHeader eyebrow={profile.data?.name} title={`${greeting()}.`}>
+        {drafts.isLoading
+          ? "Checking your posts…"
+          : count === 0
+            ? "Nothing needs your OK right now. Nice."
+            : `${count} ${count === 1 ? "post needs" : "posts need"} your OK.`}
+      </PageHeader>
 
-      <section className="card flex flex-col gap-2 p-4">
-        <h2 className="text-xl font-semibold">What should we post about?</h2>
-        <p className="text-[15px] text-ink-muted">The request box arrives in step 6, once your assistant is connected.</p>
-      </section>
+      {next && (
+        <p className="meta">
+          Next up: <Link to={`/drafts/${next.draft_id}`}>{formatWhen(draftDate(next))}</Link>
+        </p>
+      )}
+
+      {drafts.isLoading && <LoadingBlock label="Loading your posts…" />}
+      {drafts.isError && <ErrorBlock message={drafts.error.message} onRetry={() => drafts.refetch()} />}
+
+      {needsOk.length > 0 && (
+        <section aria-label="Posts that need your OK" className="flex flex-col gap-4">
+          {needsOk.map((d) => (
+            <DraftCard key={d.draft_id} draft={d} />
+          ))}
+        </section>
+      )}
+
+      <RequestBox />
     </div>
   );
 }
