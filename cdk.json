@@ -1,5 +1,9 @@
 {
-  "app": "npx tsx infra/bin/app.ts",
-  "watch": { "include": ["infra/**"] },
+  "app": "npx tsx --env-file-if-exists=.env infra/bin/app.ts",
+  "watch": {
+    "include": [
+      "infra/**"
+    ]
+  },
   "context": {}
 }
