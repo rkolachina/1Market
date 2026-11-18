@@ -1,0 +1,45 @@
+{
+  "business_id": "biz_demo_brightside",
+  "name": "Brightside Gutter & Window Co.",
+  "profile": {
+    "tagline": "Clean gutters. Clear windows. Zero mess.",
+    "description": "Family-owned gutter cleaning, gutter guard installation, and window washing company serving the Raleigh-Durham area since 2014. Fully insured, background-checked crews, and a clean-up guarantee on every job.",
+    "services": [
+      { "name": "Gutter cleaning", "price": "From $149 for single-story homes, from $219 for two-story homes", "notes": "Includes downspout flush and roof debris blow-off" },
+      { "name": "Gutter guard installation", "price": "Free on-site quote", "notes": "Micro-mesh guards with a 20-year warranty" },
+      { "name": "Window washing (exterior)", "price": "From $199", "notes": "Pure-water system, screens and sills wiped" },
+      { "name": "Window washing (interior + exterior)", "price": "From $329" },
+      { "name": "Gutter repair", "price": "Free on-site quote", "notes": "Reattaching, resealing, and replacing damaged sections" }
+    ],
+    "current_offers": [
+      { "name": "Gutter + Window Bundle", "details": "$50 off when you book gutter cleaning and exterior window washing together", "valid_until": null },
+      { "name": "Senior and military discount", "details": "10% off any service for seniors (65+) and active or retired military", "valid_until": null }
+    ],
+    "hours": "Mon-Fri 8am-6pm, Sat 9am-2pm, closed Sunday",
+    "phone": "(919) 555-0142",
+    "email": "hello@brightsidegutters.example",
+    "website": "https://brightsidegutters.example",
+    "booking_url": "https://brightsidegutters.example/book",
+    "service_area": ["Raleigh", "Durham", "Cary", "Apex", "Wake Forest", "Chapel Hill"],
+    "audience": "Homeowners in the Triangle area, mostly 35-70, many in two-story homes with mature trees. Busy professionals and retirees who don't want to get on a ladder.",
+    "tone_of_voice": "Friendly, neighborly, and practical. Light humor is fine. Confident but never pushy. Short sentences. Talks like a trusted local, not a big corporation.",
+    "differentiators": [
+      "Clean-up guarantee: if we leave a mess, the job is free",
+      "Before-and-after photos sent after every job",
+      "Same crew leaders for 10 years"
+    ],
+    "banned_words": ["cheap", "best in the world", "guaranteed lowest price", "act now"],
+    "banned_topics": ["politics", "religion", "competitor names", "storm damage insurance claims"],
+    "hashtags": ["#BrightsideGutters", "#RaleighHomes", "#TriangleLiving"],
+    "emoji_style": "Occasional, 1-2 per post max (🍂 🏡 ✨ 🪟)"
+  },
+  "brand_kit": {
+    "colors": { "primary": "#1E5AA8", "accent": "#F2A900", "background": "#FFFFFF", "text": "#1A1A1A" },
+    "style_keywords": ["clean", "bright", "friendly", "suburban", "sunny"],
+    "logo_key": "businesses/biz_demo_brightside/brand/logo.png"
+  },
+  "settings": {
+    "platforms": ["facebook"],
+    "timezone": "America/New_York"
+  }
+}
