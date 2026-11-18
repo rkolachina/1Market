@@ -33,11 +33,9 @@ export function VerifyPage() {
         }
       } else {
         await finishLogin(code);
-        // Check the session works end to end before leaving this screen,
-        // so any problem shows here instead of bouncing back to Log in.
         const token = await getIdToken();
         if (!token) throw new Error("Your code was accepted, but your session didn't save. Try logging in again.");
-        await api.get("/account");
+        // Loads the account into the session (errors show here, not as a bounce to Log in).
         await session.refresh();
       }
       clearPending();

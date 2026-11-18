@@ -31,7 +31,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (force = false) => {
       if (force) await getIdToken(true); // pick up a new business_id on the token
-      await qc.invalidateQueries({ queryKey: ["account"] });
+      // Load the account and write it straight into the cache (rather than just
+      // invalidating), so the session is "signed in" before the caller navigates.
+      // Errors propagate to the caller so they can be shown on screen.
+      const account = await loadAccount();
+      qc.setQueryData(["account"], account);
     },
     [qc],
   );
