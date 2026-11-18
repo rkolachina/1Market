@@ -115,7 +115,8 @@ Build order for the MVP. **Each step depends only on steps before it**, so every
 
 ## Step 7: Agent
 **Goal:** one brain that turns a request into a finished draft.
-- AgentCore and Strands agent with the tools built so far:
+- Strands Agents (TypeScript SDK) on AgentCore Runtime, sharing `src/db` and tool code; `business_id` is bound from the session, never passed by the model
+- Tools are our own tested functions, wrapped for the agent:
   - `get_brand_profile`, `get_post_history`
   - `draft_copy`, `generate_image`, `compose_branded_graphic`
   - `create_draft`
