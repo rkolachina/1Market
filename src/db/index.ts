@@ -109,6 +109,8 @@ export interface Draft {
   post_type?: string;
   copy: Partial<Record<Platform, PlatformCopy>>;
   image_keys?: string[];
+  /** The date/time the owner wants this posted (set before approval). */
+  target_date?: string;
   scheduled_at?: string;
   /** Owner edits, kept for future style learning. */
   edits?: { platform: Platform; before: string; after: string; at: string }[];
@@ -125,9 +127,64 @@ export interface PlatformCopy {
   cta?: string;
 }
 
+/** All drafts for a business, newest first (paginates through the partition). */
+export async function listDrafts(businessId: string, max = 500): Promise<Draft[]> {
+  const items: Draft[] = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const res = await doc.send(
+      new QueryCommand({
+        TableName: TABLES.drafts,
+        KeyConditionExpression: "business_id = :b",
+        ExpressionAttributeValues: { ":b": requireBusinessId(businessId) },
+        ScanIndexForward: false,
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    items.push(...((res.Items ?? []) as Draft[]));
+    startKey = res.LastEvaluatedKey;
+  } while (startKey && items.length < max);
+  return items.slice(0, max);
+}
+
+/** Set the requested post date on a pending or scheduled draft (also moves scheduled_at). */
+export async function setDraftDate(businessId: string, draftId: string, targetDate: string): Promise<Draft> {
+  const res = await doc.send(
+    new UpdateCommand({
+      TableName: TABLES.drafts,
+      Key: { business_id: requireBusinessId(businessId), draft_id: draftId },
+      ConditionExpression: "#status IN (:pending, :scheduled)",
+      UpdateExpression: "SET target_date = :d, updated_at = :now",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":pending": "pending",
+        ":scheduled": "scheduled",
+        ":d": targetDate,
+        ":now": new Date().toISOString(),
+      },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  const d = res.Attributes as Draft;
+  if (d.status === "scheduled") {
+    // keep the schedule in step with the new date
+    const r2 = await doc.send(
+      new UpdateCommand({
+        TableName: TABLES.drafts,
+        Key: { business_id: businessId, draft_id: draftId },
+        UpdateExpression: "SET scheduled_at = :d",
+        ExpressionAttributeValues: { ":d": targetDate },
+        ReturnValues: "ALL_NEW",
+      }),
+    );
+    return r2.Attributes as Draft;
+  }
+  return d;
+}
+
 export async function createDraft(
   businessId: string,
-  input: Pick<Draft, "copy"> & Partial<Pick<Draft, "request" | "image_keys" | "post_type">>,
+  input: Pick<Draft, "copy"> & Partial<Pick<Draft, "request" | "image_keys" | "post_type" | "target_date">>,
 ): Promise<Draft> {
   const now = new Date().toISOString();
   const item: Draft = {

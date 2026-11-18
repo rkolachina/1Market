@@ -5,18 +5,22 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import sharp from "sharp";
+import { ulid } from "ulid";
 import {
   type Business,
   type Draft,
   type DraftStatus,
   getBusiness,
   getDraft,
+  listDrafts,
   listDraftsByStatus,
   listPosts,
   putBusiness,
+  setDraftDate,
 } from "../src/db/index.js";
-import { DraftError, approve, editCaption, skip } from "../src/drafts/service.js";
-import { presignedGetUrl } from "../src/media/index.js";
+import { DraftError, approve, editCaption, skip, transition } from "../src/drafts/service.js";
+import { businessKey, presignedGetUrl, putMedia } from "../src/media/index.js";
 import { publish } from "../src/publish/index.js";
 
 type Env = { Variables: { businessId: string } };
@@ -86,9 +90,13 @@ const STATUSES: DraftStatus[] = ["pending", "approved", "scheduled", "publishing
 
 app.get("/drafts", async (c) => {
   const businessId = c.get("businessId");
-  const status = (c.req.query("status") ?? "pending") as DraftStatus;
-  if (!STATUSES.includes(status)) return c.json({ error: "Unknown status" }, 400);
-  const drafts = await listDraftsByStatus(businessId, status, 50);
+  const status = c.req.query("status") ?? "pending";
+  if (status === "all") {
+    const drafts = await listDrafts(businessId, 500);
+    return c.json(await Promise.all(drafts.map((d) => withImageUrls(businessId, d))));
+  }
+  if (!STATUSES.includes(status as DraftStatus)) return c.json({ error: "Unknown status" }, 400);
+  const drafts = await listDraftsByStatus(businessId, status as DraftStatus, 50);
   return c.json(await Promise.all(drafts.map((d) => withImageUrls(businessId, d))));
 });
 
@@ -99,12 +107,57 @@ app.get("/drafts/:id", async (c) => {
   return c.json(await withImageUrls(businessId, d));
 });
 
+/**
+ * Approve. If the draft has a future date, it becomes "scheduled" for that time;
+ * otherwise it is published right away.
+ * (The timer that publishes scheduled drafts is EventBridge Scheduler, wired in step 5.)
+ */
 app.post("/drafts/:id/approve", async (c) => {
   const businessId = c.get("businessId");
   const id = c.req.param("id");
+  const draft = await getDraft(businessId, id);
+  if (!draft) return c.json({ error: "Draft not found" }, 404);
+  const when = draft.target_date ? new Date(draft.target_date) : undefined;
+  if (when && when.getTime() > Date.now() + 60_000) {
+    const d = await transition(businessId, id, "scheduled", { scheduled_at: when.toISOString() });
+    return c.json(await withImageUrls(businessId, d));
+  }
   await approve(businessId, id);
-  const d = await publish(businessId, id); // scheduling arrives in step 5
+  const d = await publish(businessId, id);
   return c.json(await withImageUrls(businessId, d));
+});
+
+/** Missed or scheduled draft: post it right now. */
+app.post("/drafts/:id/post-now", async (c) => {
+  const businessId = c.get("businessId");
+  const id = c.req.param("id");
+  const draft = await getDraft(businessId, id);
+  if (!draft) return c.json({ error: "Draft not found" }, 404);
+  if (draft.status === "pending") await approve(businessId, id);
+  const d = await publish(businessId, id);
+  return c.json(await withImageUrls(businessId, d));
+});
+
+app.post("/drafts/:id/unschedule", async (c) => {
+  const businessId = c.get("businessId");
+  const d = await transition(businessId, c.req.param("id"), "pending");
+  return c.json(await withImageUrls(businessId, d));
+});
+
+const DateEdit = z.object({ target_date: z.string().datetime() });
+
+app.patch("/drafts/:id/date", async (c) => {
+  const businessId = c.get("businessId");
+  const { target_date } = DateEdit.parse(await c.req.json());
+  try {
+    const d = await setDraftDate(businessId, c.req.param("id"), target_date);
+    return c.json(await withImageUrls(businessId, d));
+  } catch (err) {
+    if ((err as Error).name === "ConditionalCheckFailedException") {
+      throw new DraftError("Only drafts that haven't posted yet can be moved");
+    }
+    throw err;
+  }
 });
 
 app.post("/drafts/:id/skip", async (c) => {
@@ -124,7 +177,29 @@ app.patch("/drafts/:id/caption", async (c) => {
 
 // ---- Posts ----
 app.get("/posts", async (c) => {
-  return c.json(await listPosts(c.get("businessId"), 50));
+  return c.json(await listPosts(c.get("businessId"), 100));
 });
+
+// ---- Media ----
+/** Upload a new logo (raw image body, ≤ 5 MB). Normalized to a 600px PNG. */
+app.post("/media/logo", async (c) => {
+  const businessId = c.get("businessId");
+  const type = c.req.header("content-type") ?? "";
+  if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(type)) return c.json({ error: "Use a PNG, JPG, WebP or SVG image" }, 400);
+  const body = Buffer.from(await c.req.arrayBuffer());
+  if (body.length === 0 || body.length > 5 * 1024 * 1024) return c.json({ error: "Logo must be under 5 MB" }, 400);
+  const png = await sharp(body).resize(600, 600, { fit: "inside", withoutEnlargement: true }).png().toBuffer();
+  const key = businessKey(businessId, "brand", `logo-${ulid()}.png`);
+  await putMedia(businessId, key, png, "image/png");
+  const b = await getBusiness(businessId);
+  if (!b) return c.json({ error: "Business not found" }, 404);
+  const saved = await putBusiness({ ...b, brand_kit: { ...(b.brand_kit ?? {}), logo_key: key } });
+  return c.json(await profileResponse(saved));
+});
+
+// ---- Assistant requests ----
+app.post("/requests", (c) =>
+  c.json({ error: "Your assistant isn't connected yet. We're finishing its setup." }, 503),
+);
 
 app.get("/health", (c) => c.json({ ok: true }));
