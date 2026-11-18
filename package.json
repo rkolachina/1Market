@@ -1,0 +1,13 @@
+{
+  "name": "1market",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "post:test": "tsx --env-file=.env scripts/make-post.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
