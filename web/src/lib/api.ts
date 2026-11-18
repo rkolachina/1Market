@@ -12,6 +12,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  }).catch(() => {
+    throw new ApiError(0, "We couldn't reach 1Market. Check your connection and try again.");
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, (body as { error?: string }).error ?? "Something went wrong");
@@ -23,6 +25,8 @@ export const api = {
   post: <T>(path: string, data?: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(data ?? {}) }),
   put: <T>(path: string, data: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(data) }),
   patch: <T>(path: string, data: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(data) }),
+  upload: <T>(path: string, file: File) =>
+    request<T>(path, { method: "POST", body: file, headers: { "Content-Type": file.type } }),
 };
 
 // ---- Shared shapes (mirrors src/db on the backend) ----
@@ -46,7 +50,9 @@ export interface Draft {
   request?: string;
   copy: Partial<Record<Platform, { caption: string; variants?: string[]; cta?: string }>>;
   image_urls: string[];
+  target_date?: string;
   scheduled_at?: string;
+  last_error?: string;
   publish_results?: Partial<Record<Platform, { url?: string; error?: string }>>;
   created_at: string;
 }
