@@ -9,7 +9,9 @@
     "seed": "AWS_REGION=us-east-1 tsx scripts/seed-business.ts",
     "drafts": "AWS_REGION=us-east-1 tsx scripts/drafts.ts",
     "copy:test": "AWS_REGION=us-east-1 tsx scripts/copy-test.ts",
-    "agent": "AWS_REGION=us-east-1 tsx scripts/agent.ts"
+    "agent": "AWS_REGION=us-east-1 tsx scripts/agent.ts",
+    "api": "AWS_REGION=us-east-1 tsx watch api/dev.ts",
+    "web": "cd web && npx vite"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -24,9 +26,11 @@
     "@aws-sdk/client-secrets-manager": "^3.1171.0",
     "@aws-sdk/lib-dynamodb": "^3.1171.0",
     "@aws-sdk/s3-request-presigner": "^3.1171.0",
+    "@hono/node-server": "^2.1.9",
     "@strands-agents/sdk": "^1.25.0",
     "aws-cdk-lib": "^2.277.0",
     "constructs": "^10.8.1",
+    "hono": "^4.13.19",
     "sharp": "^0.35.5",
     "ulid": "^3.0.2",
     "zod": "^4.6.7"
