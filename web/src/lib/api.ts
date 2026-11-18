@@ -1,22 +1,33 @@
-// Thin client for the 1Market API. Auth headers are added in step 2 (Cognito).
+// Thin client for the 1Market API. Sends the Cognito ID token on every request.
+import { getIdToken } from "./auth";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await getIdToken();
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   }).catch(() => {
     throw new ApiError(0, "We couldn't reach 1Market. Check your connection and try again.");
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (body as { error?: string }).error ?? "Something went wrong");
+  if (!res.ok) {
+    const b = body as { error?: string; code?: string };
+    throw new ApiError(res.status, b.error ?? "Something went wrong", b.code);
+  }
   return body as T;
 }
 
