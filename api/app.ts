@@ -4,12 +4,15 @@
 // never from the URL or request body.
 
 import { Hono } from "hono";
+import { logger } from "hono/logger";
 import { z } from "zod";
 import sharp from "sharp";
 import { ulid } from "ulid";
+import { type AuthUser, authEnabled, setUserBusiness, verifyRequest } from "./auth.js";
 import {
   type Business,
   type Draft,
+  createBusiness,
   type DraftStatus,
   getBusiness,
   getDraft,
@@ -23,16 +26,60 @@ import { DraftError, approve, editCaption, skip, transition } from "../src/draft
 import { businessKey, presignedGetUrl, putMedia } from "../src/media/index.js";
 import { publish } from "../src/publish/index.js";
 
-type Env = { Variables: { businessId: string } };
+type Env = { Variables: { businessId: string; user: AuthUser } };
 
 export const app = new Hono<Env>().basePath("/api");
 
-// ---- Auth (placeholder until Cognito in step 2) ----
-// Every request is treated as the demo business. Step 2 replaces this with
-// a Cognito token check that reads business_id from the verified token.
+// One line per request: method, path, status, time.
+app.use("*", logger());
+
+// Public: health check (registered before the auth middleware, so it answers without a login).
+app.get("/health", (c) => c.json({ ok: true }));
+
+// ---- Auth ----
+// Every request must carry a valid Cognito ID token. business_id comes ONLY from
+// that verified token. (If Cognito isn't configured locally, fall back to the demo
+// business so the app still runs; deployed environments always configure it.)
 app.use("*", async (c, next) => {
-  c.set("businessId", process.env.DEV_BUSINESS_ID ?? "biz_demo_brightside");
-  await next();
+  if (!authEnabled) {
+    c.set("user", { sub: "dev", username: "dev", email: "dev@localhost" });
+    c.set("businessId", process.env.DEV_BUSINESS_ID ?? "biz_demo_brightside");
+    return next();
+  }
+  const user = await verifyRequest(c.req.header("authorization"));
+  if (!user) return c.json({ error: "Please log in again." }, 401);
+  c.set("user", user);
+  const path = new URL(c.req.url).pathname;
+  if (!user.businessId) {
+    // Brand-new account: only allowed to see itself and create its business.
+    if (path === "/api/account" || path === "/api/account/setup") return next();
+    return c.json({ error: "Finish setting up your business first.", code: "NO_BUSINESS" }, 403);
+  }
+  c.set("businessId", user.businessId);
+  return next();
+});
+
+// ---- Account ----
+app.get("/account", (c) => {
+  const u = c.get("user");
+  return c.json({ email: u.email, name: u.name ?? null, business_id: u.businessId ?? null, auth: authEnabled });
+});
+
+const Setup = z.object({ business_name: z.string().trim().min(1).max(120) });
+
+/** First login after sign-up: create the owner's business and link it to their login. */
+app.post("/account/setup", async (c) => {
+  const user = c.get("user");
+  if (user.businessId) return c.json({ error: "Your business is already set up." }, 409);
+  const { business_name } = Setup.parse(await c.req.json());
+  const business = await createBusiness({
+    name: business_name,
+    profile: {},
+    brand_kit: { colors: { primary: "#2B2420", accent: "#E3D6BF" } },
+    settings: { platforms: ["facebook"], timezone: "America/New_York", owner_sub: user.sub },
+  });
+  await setUserBusiness(user.username, business.business_id);
+  return c.json({ business_id: business.business_id }, 201);
 });
 
 app.onError((err, c) => {
@@ -202,4 +249,3 @@ app.post("/requests", (c) =>
   c.json({ error: "Your assistant isn't connected yet. We're finishing its setup." }, 503),
 );
 
-app.get("/health", (c) => c.json({ ok: true }));
