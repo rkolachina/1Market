@@ -6,6 +6,7 @@
     "post:test": "tsx --env-file=.env scripts/make-post.ts",
     "db:smoke": "AWS_REGION=us-east-1 tsx scripts/db-smoke-test.ts",
     "cdk": "cdk",
+    "deploy": "cd web && npx vite build && cd .. && cdk deploy OneMarketApp",
     "seed": "AWS_REGION=us-east-1 tsx scripts/seed-business.ts",
     "drafts": "AWS_REGION=us-east-1 tsx scripts/drafts.ts",
     "copy:test": "AWS_REGION=us-east-1 tsx --env-file-if-exists=.env scripts/copy-test.ts",
@@ -17,8 +18,10 @@
     "link-user": "AWS_REGION=us-east-1 tsx --env-file=.env scripts/link-user.ts"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/node": "^20.14.0",
     "aws-cdk": "^2.1148.1",
+    "esbuild": "^0.25.12",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
@@ -28,6 +31,7 @@
     "@aws-sdk/client-cognito-identity-provider": "^3.1171.0",
     "@aws-sdk/client-dynamodb": "^3.1171.0",
     "@aws-sdk/client-s3": "^3.1171.0",
+    "@aws-sdk/client-scheduler": "^3.1176.0",
     "@aws-sdk/client-secrets-manager": "^3.1171.0",
     "@aws-sdk/client-sqs": "^3.1176.0",
     "@aws-sdk/lib-dynamodb": "^3.1171.0",

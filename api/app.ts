@@ -28,6 +28,7 @@ import {
 import { DraftError, approve, editCaption, skip, transition } from "../src/drafts/service.js";
 import { businessKey, presignedGetUrl, presignedPutUrl, putMedia } from "../src/media/index.js";
 import { dispatchRequest } from "../src/requests/dispatch.js";
+import { cancelPublish, schedulePublish } from "../src/schedule/index.js";
 import { publish } from "../src/publish/index.js";
 
 type Env = { Variables: { businessId: string; user: AuthUser } };
@@ -161,7 +162,7 @@ app.get("/drafts/:id", async (c) => {
 /**
  * Approve. If the draft has a future date, it becomes "scheduled" for that time;
  * otherwise it is published right away.
- * (The timer that publishes scheduled drafts is EventBridge Scheduler, wired in step 5.)
+ * A scheduled draft gets a one-time EventBridge schedule that publishes it at that time.
  */
 app.post("/drafts/:id/approve", async (c) => {
   const businessId = c.get("businessId");
@@ -170,6 +171,8 @@ app.post("/drafts/:id/approve", async (c) => {
   if (!draft) return c.json({ error: "Draft not found" }, 404);
   const when = draft.target_date ? new Date(draft.target_date) : undefined;
   if (when && when.getTime() > Date.now() + 60_000) {
+    // Schedule first: if the status write then fails, the publisher skips drafts that aren't "scheduled".
+    await schedulePublish(businessId, id, when.toISOString());
     const d = await transition(businessId, id, "scheduled", { scheduled_at: when.toISOString() });
     return c.json(await withImageUrls(businessId, d));
   }
@@ -185,13 +188,16 @@ app.post("/drafts/:id/post-now", async (c) => {
   const draft = await getDraft(businessId, id);
   if (!draft) return c.json({ error: "Draft not found" }, 404);
   if (draft.status === "pending") await approve(businessId, id);
+  if (draft.status === "scheduled") await cancelPublish(id);
   const d = await publish(businessId, id);
   return c.json(await withImageUrls(businessId, d));
 });
 
 app.post("/drafts/:id/unschedule", async (c) => {
   const businessId = c.get("businessId");
-  const d = await transition(businessId, c.req.param("id"), "pending");
+  const id = c.req.param("id");
+  await cancelPublish(id);
+  const d = await transition(businessId, id, "pending");
   return c.json(await withImageUrls(businessId, d));
 });
 
@@ -201,7 +207,16 @@ app.patch("/drafts/:id/date", async (c) => {
   const businessId = c.get("businessId");
   const { target_date } = DateEdit.parse(await c.req.json());
   try {
-    const d = await setDraftDate(businessId, c.req.param("id"), target_date);
+    const id = c.req.param("id");
+    let d = await setDraftDate(businessId, id, target_date);
+    if (d.status === "scheduled") {
+      // Move the schedule too. A date that's already passed goes back to needing the owner's OK.
+      if (Date.parse(target_date) > Date.now() + 60_000) await schedulePublish(businessId, id, target_date);
+      else {
+        await cancelPublish(id);
+        d = await transition(businessId, id, "pending");
+      }
+    }
     return c.json(await withImageUrls(businessId, d));
   } catch (err) {
     if ((err as Error).name === "ConditionalCheckFailedException") {
@@ -213,7 +228,9 @@ app.patch("/drafts/:id/date", async (c) => {
 
 app.post("/drafts/:id/skip", async (c) => {
   const businessId = c.get("businessId");
-  const d = await skip(businessId, c.req.param("id"));
+  const id = c.req.param("id");
+  await cancelPublish(id);
+  const d = await skip(businessId, id);
   return c.json(await withImageUrls(businessId, d));
 });
 

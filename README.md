@@ -25,14 +25,14 @@ Owner request ──▶ Agent (Strands + Claude) ──▶ pending draft ──�
 |---|---|
 | Database and storage (DynamoDB, S3, Secrets Manager) | ✅ Deployed |
 | Login: passwordless email codes (Cognito + SES) | ✅ Deployed (SES in sandbox) |
-| Web app: Home, Draft review, Calendar, Posts, Business profile, Log in / Sign up | ✅ Runs locally |
-| API (Hono) with login check on every request | ✅ Runs locally |
+| Web app: Home, Draft review, Calendar, Posts, Business profile, Log in / Sign up | ✅ Deployed (CloudFront) |
+| API (Hono) with login check on every request | ✅ Deployed (Lambda + API Gateway, behind CloudFront at `/api`) |
 | Publishing to Facebook through Make (text and photo) | ✅ Working |
 | Draft lifecycle: approve, edit, skip, schedule, unschedule, post now | ✅ Working |
-| Agent (Strands), caption writer with fact checks, branded images | 🟡 Built, not yet tested end to end (needs an Anthropic API key) |
-| Scheduled posts firing on their date (EventBridge Scheduler) | ⏳ Next |
-| AI background images (Nano Banana / Gemini) | 🟡 Built, not yet tested (needs a Gemini API key) |
-| Deploying API, agent and web app to AWS (Lambda, AgentCore, CloudFront) | ⏳ Planned |
+| Request box → assistant: drafts, clarifying questions, attached photo, requested date | ✅ Deployed (agent Lambda on an SQS queue) |
+| Agent (Strands), caption writer with fact checks, branded images | ✅ Working (Claude through the Anthropic API) |
+| Scheduled posts firing on their date (EventBridge Scheduler → publisher Lambda) | ✅ Deployed |
+| AI background images (Nano Banana / Gemini) | ✅ Working (layout still to polish; one square size for every platform) |
 | Instagram and Google Business Profile publishing | ⏳ Planned |
 | Email notifications with one-click approve | ⏳ Planned |
 
@@ -41,11 +41,11 @@ Owner request ──▶ Agent (Strands + Claude) ──▶ pending draft ──�
 | Layer | Choice |
 |---|---|
 | Web app | React + Vite + TypeScript, Tailwind CSS, React Router, TanStack Query, Amplify Auth, Phosphor icons |
-| API | Hono (runs locally now, on Lambda + API Gateway later), Zod validation |
-| Agent | Strands Agents (TypeScript), deployed on AWS later; Claude Sonnet 5.5 through the Anthropic API (Amazon Bedrock available with `LLM_PROVIDER=bedrock`) |
+| API | Hono on Lambda + API Gateway (same app runs locally), Zod validation |
+| Agent | Strands Agents (TypeScript) on Lambda, fed by an SQS queue; Claude Sonnet 5.5 through the Anthropic API (Amazon Bedrock available with `LLM_PROVIDER=bedrock`) |
 | Images | Nano Banana 2.1 (Gemini API) backgrounds, with headline, contact details and logo added in code (sharp) |
 | Publishing | Make scenario → Facebook Pages (Meta Graph API directly later) |
-| Data | DynamoDB (businesses, drafts, posts), S3 (images), Secrets Manager |
+| Data | DynamoDB (businesses, drafts, posts, requests), S3 (images), Secrets Manager (Make webhook; Anthropic + Gemini keys in `1market/app/api-keys`) |
 | Auth | Amazon Cognito (Essentials tier, email one-time codes) + Amazon SES |
 | Infrastructure | AWS CDK (TypeScript) |
 
@@ -106,9 +106,11 @@ Open http://localhost:5173 and create an account. While SES is in sandbox mode, 
 | `npm run seed:drafts` | Add demo drafts across the month |
 | `npm run link-user -- <email> <business_id>` | Attach a login to an existing business |
 | `npm run drafts -- list \| show \| create \| approve \| edit \| skip \| retry` | Manage drafts from the terminal |
-| `npm run agent -- "post about…"` | Send a request to the agent (needs model access) |
+| `npm run agent -- "post about…"` | Send a request to the agent from the terminal |
+| `npm run image:test -- "scene" "headline"` | Make one post image (Nano Banana + headline/logo) into `out/` |
 | `npm run db:smoke` | Check the tables, including that businesses can't see each other's data |
 | `npm run post:test -- --caption "…" [--image url]` | Send a test post straight to the Make scenario |
+| `npm run deploy` | Build the web app and deploy the app stack (`OneMarketApp`) |
 | `npx cdk diff` / `npx cdk deploy <Stack>` | Preview or deploy infrastructure |
 
 ## Design

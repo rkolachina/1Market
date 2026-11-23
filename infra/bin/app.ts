@@ -1,4 +1,5 @@
 import { App, Tags } from "aws-cdk-lib";
+import { AppStack } from "../lib/app-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
 
@@ -19,6 +20,19 @@ if (senderEmail) {
     senderEmail,
     terminationProtection: true,
     description: "1Market owner logins (Cognito, passwordless email codes)",
+  });
+}
+
+// The running app (API, agent, publisher, web). Needs the Cognito IDs from .env.
+const userPoolId = process.env.USER_POOL_ID;
+const userPoolClientId = process.env.USER_POOL_CLIENT_ID;
+if (userPoolId && userPoolClientId) {
+  new AppStack(app, "OneMarketApp", {
+    env,
+    userPoolId,
+    userPoolClientId,
+    mediaBucketName: process.env.MEDIA_BUCKET ?? "onemarketdata-mediaa721a567-lygowz5wcgoj",
+    description: "1Market app: API, agent and publisher Lambdas, scheduled publishing, web app on CloudFront",
   });
 }
 
