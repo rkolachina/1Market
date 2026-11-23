@@ -30,6 +30,8 @@ export interface AgentRequest {
   photoKey?: string;
   /** Owner's answers to questions from a previous run. */
   answers?: string;
+  /** When the owner wants it posted (ISO UTC); saved on the draft. */
+  targetDate?: string;
 }
 
 const SYSTEM_PROMPT = `You are the 1Market assistant for one local business. The owner sends a request; you turn it into a ready-to-review social media draft.
@@ -165,6 +167,7 @@ export async function invokeAgent(req: AgentRequest): Promise<AgentOutcome> {
           gbp: { caption: c.gbp.text, cta: c.gbp.cta_type },
         },
         image_keys: state.imageKey ? [state.imageKey] : undefined,
+        target_date: req.targetDate,
       });
       state.draftId = draft.draft_id;
       return JSON.stringify({ ok: true, draft_id: draft.draft_id });

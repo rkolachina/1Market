@@ -1,6 +1,6 @@
 import { CfnOutput, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import { AttributeType, BillingMode, Table, TableEncryption } from "aws-cdk-lib/aws-dynamodb";
-import { BlockPublicAccess, Bucket, BucketEncryption, ObjectOwnership } from "aws-cdk-lib/aws-s3";
+import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 
@@ -47,6 +47,16 @@ export class DataStack extends Stack {
       sortKey: { name: "post_key", type: AttributeType.STRING },
     });
 
+    // requests: one item per owner request to the assistant, tracking the agent run.
+    // PK business_id, SK request_id (ULID). Items expire 30 days after creation (expires_at, epoch seconds).
+    const requests = new Table(this, "Requests", {
+      ...tableDefaults,
+      tableName: "onemarket-requests",
+      partitionKey: { name: "business_id", type: AttributeType.STRING },
+      sortKey: { name: "request_id", type: AttributeType.STRING },
+      timeToLiveAttribute: "expires_at",
+    });
+
     // Media bucket: objects stored under businesses/<business_id>/...
     const media = new Bucket(this, "Media", {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
@@ -55,6 +65,9 @@ export class DataStack extends Stack {
       objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
       versioned: false,
       removalPolicy: RemovalPolicy.RETAIN,
+      // The web app uploads owner photos straight to S3 with short-lived presigned PUT URLs.
+      // The URL is the permission (scoped to one key under the business's folder), so any origin may use it.
+      cors: [{ allowedMethods: [HttpMethods.PUT], allowedOrigins: ["*"], allowedHeaders: ["content-type"], maxAge: 3600 }],
     });
 
     // Make webhook URL. Value is set out-of-band (never committed).
@@ -66,6 +79,7 @@ export class DataStack extends Stack {
     new CfnOutput(this, "BusinessesTable", { value: businesses.tableName });
     new CfnOutput(this, "DraftsTable", { value: drafts.tableName });
     new CfnOutput(this, "PostsTable", { value: posts.tableName });
+    new CfnOutput(this, "RequestsTable", { value: requests.tableName });
     new CfnOutput(this, "MediaBucket", { value: media.bucketName });
     new CfnOutput(this, "MakeWebhookSecretName", { value: makeWebhook.secretName });
   }

@@ -13,7 +13,9 @@ import {
   type Business,
   type Draft,
   createBusiness,
+  createRequest,
   type DraftStatus,
+  getRequest,
   getBusiness,
   getDraft,
   listDrafts,
@@ -21,9 +23,11 @@ import {
   listPosts,
   putBusiness,
   setDraftDate,
+  setRequestStatus,
 } from "../src/db/index.js";
 import { DraftError, approve, editCaption, skip, transition } from "../src/drafts/service.js";
-import { businessKey, presignedGetUrl, putMedia } from "../src/media/index.js";
+import { businessKey, presignedGetUrl, presignedPutUrl, putMedia } from "../src/media/index.js";
+import { dispatchRequest } from "../src/requests/dispatch.js";
 import { publish } from "../src/publish/index.js";
 
 type Env = { Variables: { businessId: string; user: AuthUser } };
@@ -244,8 +248,86 @@ app.post("/media/logo", async (c) => {
   return c.json(await profileResponse(saved));
 });
 
+/** Upload link for a photo the owner attaches to a request (browser PUTs straight to S3). */
+const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+app.post("/media/upload-url", async (c) => {
+  const businessId = c.get("businessId");
+  const { content_type } = z.object({ content_type: z.string() }).parse(await c.req.json());
+  const ext = PHOTO_TYPES[content_type];
+  if (!ext) return c.json({ error: "Use a JPG, PNG or WebP photo" }, 400);
+  const key = businessKey(businessId, "uploads", `${ulid()}.${ext}`);
+  return c.json({ key, url: await presignedPutUrl(businessId, key, content_type) });
+});
+
 // ---- Assistant requests ----
-app.post("/requests", (c) =>
-  c.json({ error: "Your assistant isn't connected yet. We're finishing its setup." }, 503),
-);
+// The agent takes 20-60s, so a request is saved and run in the background; the app
+// polls GET /requests/:id until it's done (a draft, or questions for the owner).
+
+const NewRequest = z.object({
+  request: z.string().trim().min(1).max(1000),
+  target_date: z.string().datetime().optional(),
+  photo_key: z.string().optional(),
+});
+
+type RequestRecord = NonNullable<Awaited<ReturnType<typeof getRequest>>>;
+
+/** A run that has been "running" this long crashed (an agent run takes about a minute). */
+const STALE_MS = 5 * 60 * 1000;
+const isStale = (r: RequestRecord) => r.status === "running" && Date.now() - Date.parse(r.updated_at) > STALE_MS;
+
+/** What the app sees: no internal fields; a crashed run shows as failed so it can be retried. */
+const requestView = (r: RequestRecord) => ({
+  request_id: r.request_id,
+  status: isStale(r) ? "failed" : r.status,
+  request: r.request,
+  result: r.result,
+  error: isStale(r) ? "Something went wrong while making this post. Please try again." : r.error,
+  created_at: r.created_at,
+});
+
+app.post("/requests", async (c) => {
+  const businessId = c.get("businessId");
+  const body = NewRequest.parse(await c.req.json());
+  if (body.photo_key && !body.photo_key.startsWith(`businesses/${businessId}/uploads/`)) {
+    return c.json({ error: "That photo doesn't belong to your business" }, 400);
+  }
+  const r = await createRequest(businessId, body);
+  await dispatchRequest({ businessId, requestId: r.request_id });
+  return c.json(requestView(r), 202);
+});
+
+app.get("/requests/:id", async (c) => {
+  const r = await getRequest(c.get("businessId"), c.req.param("id"));
+  if (!r) return c.json({ error: "Request not found" }, 404);
+  return c.json(requestView(r));
+});
+
+/** Owner answers the assistant's questions; the same request runs again with the answers. */
+app.post("/requests/:id/answers", async (c) => {
+  const businessId = c.get("businessId");
+  const id = c.req.param("id");
+  const { answers } = z.object({ answers: z.string().trim().min(1).max(2000) }).parse(await c.req.json());
+  const r = await getRequest(businessId, id);
+  if (!r) return c.json({ error: "Request not found" }, 404);
+  if (r.status !== "done" || r.result?.kind !== "question") {
+    return c.json({ error: "This request isn't waiting for answers" }, 409);
+  }
+  const all = r.answers ? `${r.answers}\n${answers}` : answers;
+  const updated = await setRequestStatus(businessId, id, "done", "queued", { answers: all }, ["result"]);
+  await dispatchRequest({ businessId, requestId: id });
+  return c.json(requestView(updated), 202);
+});
+
+/** Run a failed request again. */
+app.post("/requests/:id/retry", async (c) => {
+  const businessId = c.get("businessId");
+  const id = c.req.param("id");
+  const r = await getRequest(businessId, id);
+  if (!r) return c.json({ error: "Request not found" }, 404);
+  if (r.status !== "failed" && !isStale(r)) return c.json({ error: "Only a request that didn't work can be tried again" }, 409);
+  const updated = await setRequestStatus(businessId, id, r.status, "queued", {}, ["error"]);
+  await dispatchRequest({ businessId, requestId: id });
+  return c.json(requestView(updated), 202);
+});
 

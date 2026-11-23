@@ -41,3 +41,9 @@ export async function presignedGetUrl(businessId: string, key: string, expiresIn
   assertOwnedKey(businessId, key);
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: config.mediaBucket, Key: key }), { expiresIn });
 }
+
+/** Short-lived upload link for one key (the browser PUTs the file straight to S3). */
+export async function presignedPutUrl(businessId: string, key: string, contentType: string, expiresIn = 600): Promise<string> {
+  assertOwnedKey(businessId, key);
+  return getSignedUrl(s3, new PutObjectCommand({ Bucket: config.mediaBucket, Key: key, ContentType: contentType }), { expiresIn });
+}

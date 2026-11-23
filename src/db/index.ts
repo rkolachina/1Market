@@ -16,6 +16,7 @@ export const TABLES = {
   businesses: process.env.BUSINESSES_TABLE ?? "onemarket-businesses",
   drafts: process.env.DRAFTS_TABLE ?? "onemarket-drafts",
   posts: process.env.POSTS_TABLE ?? "onemarket-posts",
+  requests: process.env.REQUESTS_TABLE ?? "onemarket-requests",
 };
 
 const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -357,4 +358,98 @@ export async function listPosts(businessId: string, limit = 50): Promise<Post[]>
     }),
   );
   return (res.Items ?? []) as Post[];
+}
+
+// ---------- Requests (owner asks the assistant for a post) ----------
+
+export type RequestStatus = "queued" | "running" | "done" | "failed";
+
+export type RequestResult =
+  | { kind: "draft"; draft_id: string; message: string }
+  | { kind: "question"; questions: string[]; message: string };
+
+export interface AgentRequestRecord {
+  business_id: string;
+  request_id: string;
+  status: RequestStatus;
+  request: string;
+  /** Owner's answers to the assistant's questions (set when they reply). */
+  answers?: string;
+  /** S3 key of an attached photo, under businesses/<business_id>/uploads/. */
+  photo_key?: string;
+  /** When the owner wants it posted (ISO UTC). */
+  target_date?: string;
+  result?: RequestResult;
+  /** Owner-facing error message when status is failed. */
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  /** TTL (epoch seconds). */
+  expires_at: number;
+}
+
+export async function createRequest(
+  businessId: string,
+  input: Pick<AgentRequestRecord, "request"> & Partial<Pick<AgentRequestRecord, "photo_key" | "target_date">>,
+): Promise<AgentRequestRecord> {
+  const now = new Date();
+  const item: AgentRequestRecord = {
+    ...input,
+    business_id: requireBusinessId(businessId),
+    request_id: `req_${ulid()}`,
+    status: "queued",
+    created_at: now.toISOString(),
+    updated_at: now.toISOString(),
+    expires_at: Math.floor(now.getTime() / 1000) + 30 * 24 * 3600,
+  };
+  await doc.send(new PutCommand({ TableName: TABLES.requests, Item: item }));
+  return item;
+}
+
+export async function getRequest(businessId: string, requestId: string): Promise<AgentRequestRecord | undefined> {
+  const res = await doc.send(
+    new GetCommand({
+      TableName: TABLES.requests,
+      Key: { business_id: requireBusinessId(businessId), request_id: requestId },
+    }),
+  );
+  return res.Item as AgentRequestRecord | undefined;
+}
+
+/**
+ * Move a request from one status to another, setting fields on the way. Only succeeds if
+ * it is currently in `from` (so a retried queue message never runs the agent twice).
+ * `remove` deletes fields (e.g. the previous result when the owner answers questions).
+ */
+export async function setRequestStatus(
+  businessId: string,
+  requestId: string,
+  from: RequestStatus,
+  to: RequestStatus,
+  fields: Partial<Pick<AgentRequestRecord, "result" | "error" | "answers">> = {},
+  remove: ("result" | "error")[] = [],
+): Promise<AgentRequestRecord> {
+  // Names go through #placeholders: "result" and "status" are DynamoDB reserved words.
+  const sets = ["#status = :to", "updated_at = :now"];
+  const names: Record<string, string> = { "#status": "status" };
+  const values: Record<string, unknown> = { ":from": from, ":to": to, ":now": new Date().toISOString() };
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined) continue;
+    sets.push(`#${k} = :${k}`);
+    names[`#${k}`] = k;
+    values[`:${k}`] = v;
+  }
+  for (const k of remove) names[`#${k}`] = k;
+  const res = await doc.send(
+    new UpdateCommand({
+      TableName: TABLES.requests,
+      Key: { business_id: requireBusinessId(businessId), request_id: requestId },
+      ConditionExpression: "#status = :from",
+      UpdateExpression: "SET " + sets.join(", ") + (remove.length ? " REMOVE " + remove.map((k) => `#${k}`).join(", ") : ""),
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return res.Attributes as AgentRequestRecord;
 }

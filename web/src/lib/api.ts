@@ -77,3 +77,23 @@ export interface Post {
   post_type?: string;
   posted_at: string;
 }
+
+export type RequestStatus = "queued" | "running" | "done" | "failed";
+
+/** An owner's request to the assistant and how it's going. */
+export interface AssistantRequest {
+  request_id: string;
+  status: RequestStatus;
+  request: string;
+  result?: { kind: "draft"; draft_id: string; message: string } | { kind: "question"; questions: string[]; message: string };
+  error?: string;
+  created_at: string;
+}
+
+/** Upload a file straight to S3 with a presigned PUT URL from the API. */
+export async function uploadToS3(url: string, file: File): Promise<void> {
+  const res = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } }).catch(() => {
+    throw new ApiError(0, "We couldn't upload your photo. Check your connection and try again.");
+  });
+  if (!res.ok) throw new ApiError(res.status, "We couldn't upload your photo. Please try again.");
+}
