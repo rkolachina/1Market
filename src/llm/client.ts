@@ -1,6 +1,8 @@
-// Claude on Amazon Bedrock via the Converse API (the same API Strands uses).
-// One helper: ask for JSON matching a Zod schema, validated on the way back.
+// Claude for one-shot JSON calls, on the Anthropic API (default) or Amazon Bedrock
+// (LLM_PROVIDER=bedrock). One helper: ask for JSON matching a Zod schema, validated
+// on the way back.
 
+import Anthropic from "@anthropic-ai/sdk";
 import {
   BedrockRuntimeClient,
   type ContentBlock,
@@ -10,12 +12,10 @@ import {
 import { z } from "zod";
 import { config } from "../config.js";
 
-export const COPY_MODEL = process.env.COPY_MODEL_ID ?? "global.anthropic.claude-sonnet-5-5";
-const FALLBACK_MODEL = process.env.COPY_FALLBACK_MODEL_ID ?? "global.anthropic.claude-sonnet-5";
-
-const bedrock = new BedrockRuntimeClient({ region: config.region });
+export const COPY_MODEL = config.copyModelId;
 
 export type ChatTurn = { role: "user" | "assistant"; text: string };
+type Effort = "low" | "medium" | "high";
 
 export interface JsonResult<T> {
   /** Parsed and validated output, or undefined if the model declined / returned invalid JSON. */
@@ -25,29 +25,72 @@ export interface JsonResult<T> {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
-async function callOnce<T>(
-  modelId: string,
-  schema: z.ZodType<T>,
-  schemaName: string,
-  system: string,
-  turns: ChatTurn[],
-  effort: string,
-): Promise<JsonResult<T>> {
-  const messages: Message[] = turns.map((t) => ({
+interface CallArgs<T> {
+  schema: z.ZodType<T>;
+  schemaName: string;
+  system: string;
+  turns: ChatTurn[];
+  effort: Effort;
+}
+
+function parseJson<T>(schema: z.ZodType<T>, text: string): T | undefined {
+  try {
+    const parsed = schema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined; // not JSON (e.g. a refusal message)
+  }
+}
+
+// ---- Anthropic API ----
+
+let anthropic: Anthropic | undefined;
+
+async function callAnthropic<T>(a: CallArgs<T>): Promise<JsonResult<T>> {
+  anthropic ??= new Anthropic(); // reads ANTHROPIC_API_KEY
+  const res = await anthropic.beta.messages.create({
+    model: config.copyModelId,
+    max_tokens: 16000,
+    system: a.system,
+    messages: a.turns.map((t) => ({ role: t.role, content: t.text })),
+    output_config: {
+      effort: a.effort,
+      format: { type: "json_schema", schema: z.toJSONSchema(a.schema) as Record<string, unknown> },
+    },
+    // If the model declines, the API reruns the request on a fallback model it picks.
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+  });
+  const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  return {
+    data: res.stop_reason === "refusal" ? undefined : parseJson(a.schema, text),
+    stopReason: res.stop_reason ?? undefined,
+    model: res.model,
+    usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
+  };
+}
+
+// ---- Amazon Bedrock (Converse API) ----
+
+let bedrock: BedrockRuntimeClient | undefined;
+
+async function callBedrock<T>(modelId: string, a: CallArgs<T>): Promise<JsonResult<T>> {
+  bedrock ??= new BedrockRuntimeClient({ region: config.region });
+  const messages: Message[] = a.turns.map((t) => ({
     role: t.role,
     content: [{ text: t.text } as ContentBlock],
   }));
   const res = await bedrock.send(
     new ConverseCommand({
       modelId,
-      system: [{ text: system }],
+      system: [{ text: a.system }],
       messages,
       inferenceConfig: { maxTokens: 16000 },
       outputConfig: {
-        effort,
+        effort: a.effort,
         textFormat: {
           type: "json_schema",
-          structure: { jsonSchema: { name: schemaName, schema: JSON.stringify(z.toJSONSchema(schema)) } },
+          structure: { jsonSchema: { name: a.schemaName, schema: JSON.stringify(z.toJSONSchema(a.schema)) } },
         },
       },
     }),
@@ -55,31 +98,27 @@ async function callOnce<T>(
   const text = (res.output?.message?.content ?? [])
     .map((b) => ("text" in b ? (b.text ?? "") : ""))
     .join("");
-  let data: T | undefined;
-  try {
-    const parsed = schema.safeParse(JSON.parse(text));
-    if (parsed.success) data = parsed.data;
-  } catch {
-    // not JSON (e.g. a refusal message)
-  }
   return {
-    data,
+    data: parseJson(a.schema, text),
     stopReason: res.stopReason,
     model: modelId,
     usage: { inputTokens: res.usage?.inputTokens, outputTokens: res.usage?.outputTokens },
   };
 }
 
-/** JSON output from Claude; retries once on the fallback model if the primary declines. */
+/** JSON output from Claude. If the main model declines, it falls back to another model. */
 export async function claudeJson<T>(opts: {
   schema: z.ZodType<T>;
   schemaName: string;
   system: string;
   turns: ChatTurn[];
-  effort?: "low" | "medium" | "high";
+  effort?: Effort;
 }): Promise<JsonResult<T>> {
-  const effort = opts.effort ?? "medium";
-  const first = await callOnce(COPY_MODEL, opts.schema, opts.schemaName, opts.system, opts.turns, effort);
+  const args: CallArgs<T> = { ...opts, effort: opts.effort ?? "medium" };
+  if (config.llmProvider === "anthropic") return callAnthropic(args);
+
+  // Bedrock has no server-side fallback, so retry once on the fallback model.
+  const first = await callBedrock(config.copyModelId, args);
   if (first.data || first.stopReason === "max_tokens") return first;
-  return callOnce(FALLBACK_MODEL, opts.schema, opts.schemaName, opts.system, opts.turns, effort);
+  return callBedrock(config.copyFallbackModelId, args);
 }

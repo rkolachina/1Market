@@ -29,9 +29,9 @@ Owner request ──▶ Agent (Strands + Claude) ──▶ pending draft ──�
 | API (Hono) with login check on every request | ✅ Runs locally |
 | Publishing to Facebook through Make (text and photo) | ✅ Working |
 | Draft lifecycle: approve, edit, skip, schedule, unschedule, post now | ✅ Working |
-| Agent (Strands), caption writer with fact checks, branded images | 🟡 Built, waiting on Bedrock model access |
+| Agent (Strands), caption writer with fact checks, branded images | 🟡 Built, not yet tested end to end (needs an Anthropic API key) |
 | Scheduled posts firing on their date (EventBridge Scheduler) | ⏳ Next |
-| AI images (Nano Banana / Gemini) | ⏳ Planned |
+| AI background images (Nano Banana / Gemini) | 🟡 Built, not yet tested (needs a Gemini API key) |
 | Deploying API, agent and web app to AWS (Lambda, AgentCore, CloudFront) | ⏳ Planned |
 | Instagram and Google Business Profile publishing | ⏳ Planned |
 | Email notifications with one-click approve | ⏳ Planned |
@@ -42,8 +42,8 @@ Owner request ──▶ Agent (Strands + Claude) ──▶ pending draft ──�
 |---|---|
 | Web app | React + Vite + TypeScript, Tailwind CSS, React Router, TanStack Query, Amplify Auth, Phosphor icons |
 | API | Hono (runs locally now, on Lambda + API Gateway later), Zod validation |
-| Agent | Strands Agents (TypeScript) on Bedrock AgentCore; Claude Sonnet on Amazon Bedrock |
-| Images | Code-composed branded graphics (sharp); Nano Banana (Gemini) planned |
+| Agent | Strands Agents (TypeScript), deployed on AWS later; Claude Sonnet 5.5 through the Anthropic API (Amazon Bedrock available with `LLM_PROVIDER=bedrock`) |
+| Images | Nano Banana 2.1 (Gemini API) backgrounds, with headline, contact details and logo added in code (sharp) |
 | Publishing | Make scenario → Facebook Pages (Meta Graph API directly later) |
 | Data | DynamoDB (businesses, drafts, posts), S3 (images), Secrets Manager |
 | Auth | Amazon Cognito (Essentials tier, email one-time codes) + Amazon SES |
@@ -77,6 +77,9 @@ MAKE_WEBHOOK_URL=        # Make scenario webhook (also stored in Secrets Manager
 USER_POOL_ID=            # from the OneMarketAuth stack outputs
 USER_POOL_CLIENT_ID=     # from the OneMarketAuth stack outputs
 SENDER_EMAIL=            # SES-verified address that sends login codes
+ANTHROPIC_API_KEY=       # Claude, from console.anthropic.com
+GEMINI_API_KEY=          # Nano Banana images, from aistudio.google.com (optional: without it, posts get a plain branded graphic)
+# LLM_PROVIDER=bedrock   # optional: use Claude on Amazon Bedrock instead
 ```
 
 and `web/.env.local`:

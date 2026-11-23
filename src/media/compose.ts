@@ -1,5 +1,5 @@
 // Branded images built with code (exact text, real logo — never AI-rendered text).
-// Nano Banana generation will plug in alongside this later.
+// The background is either the brand color or a Nano Banana photo (generate.ts).
 
 import sharp, { type OverlayOptions } from "sharp";
 import { type Business } from "../db/index.js";
@@ -43,8 +43,12 @@ async function logoBuffer(business: Business, size: number): Promise<Buffer | un
   return sharp(raw).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
 }
 
-/** Promo/announcement graphic: brand background, exact headline, logo, contact footer. */
-export async function composeBrandedGraphic(business: Business, headline: string): Promise<Buffer> {
+/**
+ * Promo/announcement graphic: exact headline, logo, contact footer. The background is
+ * the brand color, or the given photo (e.g. from Nano Banana) under a brand-color tint
+ * so the headline stays readable.
+ */
+export async function composeBrandedGraphic(business: Business, headline: string, background?: Buffer): Promise<Buffer> {
   const b = brand(business);
   const lines = wrap(headline || business.name);
   const fontSize = lines.length > 2 ? 104 : 120;
@@ -55,10 +59,12 @@ export async function composeBrandedGraphic(business: Business, headline: string
         `<text x="540" y="${startY + i * fontSize * 1.1}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="800" fill="#FFFFFF">${esc(l)}</text>`,
     )
     .join("");
+  // Over a photo: a lighter tint, strongest behind the headline, so the photo shows through.
+  const stops = background
+    ? `<stop offset="0" stop-color="${b.primary}" stop-opacity="0.55"/><stop offset="0.45" stop-color="${b.primary}" stop-opacity="0.65"/><stop offset="0.8" stop-color="${b.primary}" stop-opacity="0.15"/>`
+    : `<stop offset="0" stop-color="${b.primary}"/><stop offset="1" stop-color="${b.primary}" stop-opacity="0.85"/>`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}">
-    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${b.primary}"/><stop offset="1" stop-color="${b.primary}" stop-opacity="0.85"/>
-    </linearGradient></defs>
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">${stops}</linearGradient></defs>
     <rect width="${SIZE}" height="${SIZE}" fill="url(#g)"/>
     <rect x="390" y="${startY + lines.length * fontSize * 1.1 - 40}" width="300" height="12" rx="6" fill="${b.accent}"/>
     ${text}
@@ -68,7 +74,12 @@ export async function composeBrandedGraphic(business: Business, headline: string
   const layers: OverlayOptions[] = [];
   const logo = await logoBuffer(business, 150);
   if (logo) layers.push({ input: logo, top: 915, left: SIZE - 150 - 50 });
-  return sharp(Buffer.from(svg)).composite(layers).jpeg({ quality: 90 }).toBuffer();
+  if (!background) return sharp(Buffer.from(svg)).composite(layers).jpeg({ quality: 90 }).toBuffer();
+  const photo = await sharp(background).resize(SIZE, SIZE, { fit: "cover" }).toBuffer();
+  return sharp(photo)
+    .composite([{ input: Buffer.from(svg) }, ...layers])
+    .jpeg({ quality: 90 })
+    .toBuffer();
 }
 
 /** Owner photo: square crop, small logo badge in the corner. */

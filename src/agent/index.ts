@@ -8,12 +8,14 @@
 // - There is no publish tool. Publishing happens only after the owner approves.
 
 import { Agent, BedrockModel, tool } from "@strands-agents/sdk";
+import { AnthropicModel } from "@strands-agents/sdk/models/anthropic";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { config } from "../config.js";
 import { type DraftCopyOutput, POST_TYPES, draftCopy } from "../copy/draftCopy.js";
 import { type Business, createDraft, getBusiness, listPosts } from "../db/index.js";
 import { brandOwnerPhoto, composeBrandedGraphic } from "../media/compose.js";
+import { canGenerateImages, generateBackground } from "../media/generate.js";
 import { businessKey, getMedia, putMedia } from "../media/index.js";
 
 export type AgentOutcome =
@@ -38,7 +40,7 @@ Steps:
 3. Call draft_copy with the owner's request (and any answers they gave).
    - If it returns questions, call ask_owner with them and stop.
    - If it reports problems, you may call it once more with clarified instructions; if it still fails, call ask_owner explaining what is unclear.
-4. Call prepare_image. Use the owner's photo if one was attached; otherwise make a branded graphic.
+4. Call prepare_image. If the owner attached a photo, it is used automatically. Otherwise also give a short scene for the background photo: a generic setting that fits the post (e.g. "a two-story suburban house with clean gutters, autumn leaves on the lawn, sunny afternoon"). No text, people or branding in the scene.
 5. Call create_draft.
 6. Reply to the owner in 1-2 friendly sentences saying the draft is ready for review.
 
@@ -106,18 +108,44 @@ export async function invokeAgent(req: AgentRequest): Promise<AgentOutcome> {
   const prepareImage = tool({
     name: "prepare_image",
     description:
-      "Prepare the post image. Uses the owner's attached photo (with a logo badge) if there is one, otherwise builds a branded graphic with the given headline.",
+      "Prepare the post image. Call after draft_copy succeeds. Uses the owner's attached photo (with a logo badge) if there is one. Otherwise generates a background photo from the scene and puts the checked headline from draft_copy, contact details and logo on top; without a scene it makes a plain branded graphic.",
     inputSchema: z.object({
-      headline: z.string().max(60).describe("Short headline for a branded graphic (ignored when the owner attached a photo)"),
+      scene: z
+        .string()
+        .max(300)
+        .optional()
+        .describe("Background photo to generate: a generic setting, no text, people or branding (ignored when the owner attached a photo)"),
     }),
-    callback: async ({ headline }) => {
-      const image = req.photoKey
-        ? await brandOwnerPhoto(business as Business, await getMedia(businessId, req.photoKey))
-        : await composeBrandedGraphic(business as Business, headline);
+    callback: async ({ scene }) => {
+      // The headline is the fact-checked one from draft_copy, never text the model passes in.
+      if (!req.photoKey && !state.copy) {
+        return JSON.stringify({ ok: false, error: "No checked copy yet. Call draft_copy first." });
+      }
+      const headline = state.copy?.image_headline ?? "";
+      let source: "owner_photo" | "generated" | "branded_graphic";
+      let image: Buffer;
+      let note: string | undefined;
+      if (req.photoKey) {
+        source = "owner_photo";
+        image = await brandOwnerPhoto(business as Business, await getMedia(businessId, req.photoKey));
+      } else {
+        let background: Buffer | undefined;
+        if (scene && canGenerateImages()) {
+          try {
+            background = await generateBackground(business as Business, scene);
+          } catch (err) {
+            // Never block a draft on image generation: fall back to the plain graphic.
+            note = `Background generation failed, used the plain graphic: ${(err as Error).message}`;
+            console.warn(note);
+          }
+        }
+        source = background ? "generated" : "branded_graphic";
+        image = await composeBrandedGraphic(business as Business, headline, background);
+      }
       const key = businessKey(businessId, "generated", `${ulid()}.jpg`);
       await putMedia(businessId, key, image, "image/jpeg");
       state.imageKey = key;
-      return JSON.stringify({ ok: true, source: req.photoKey ? "owner_photo" : "branded_graphic" });
+      return JSON.stringify({ ok: true, source, ...(note ? { note } : {}) });
     },
   });
 
@@ -154,7 +182,10 @@ export async function invokeAgent(req: AgentRequest): Promise<AgentOutcome> {
   });
 
   const agent = new Agent({
-    model: new BedrockModel({ region: config.region, modelId: config.agentModelId, maxTokens: 8000 }),
+    model:
+      config.llmProvider === "anthropic"
+        ? new AnthropicModel({ modelId: config.agentModelId, maxTokens: 8000 }) // reads ANTHROPIC_API_KEY
+        : new BedrockModel({ region: config.region, modelId: config.agentModelId, maxTokens: 8000 }),
     systemPrompt: SYSTEM_PROMPT,
     tools: [getBrandProfile, getPostHistory, draftCopyTool, prepareImage, createDraftTool, askOwner],
     printer: false,
