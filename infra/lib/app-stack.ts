@@ -21,7 +21,7 @@ import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction, type NodejsFunctionProps, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import { RetentionDays } from "aws-cdk-lib/aws-logs";
 import { BlockPublicAccess, Bucket, BucketEncryption } from "aws-cdk-lib/aws-s3";
-import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment";
+import { BucketDeployment, CacheControl, Source } from "aws-cdk-lib/aws-s3-deployment";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Queue } from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
@@ -211,12 +211,23 @@ export class AppStack extends Stack {
     // Upload the built web app (npm run deploy builds it first).
     const webDist = join(ROOT, "web", "dist");
     if (existsSync(webDist)) {
-      new BucketDeployment(this, "WebDeploy", {
-        sources: [Source.asset(webDist)],
+      // Built JS/CSS have content hashes in their names, so they can be cached for good.
+      const assets = new BucketDeployment(this, "WebDeploy", {
+        sources: [Source.asset(webDist, { exclude: ["index.html"] })],
         destinationBucket: webBucket,
+        cacheControl: [CacheControl.fromString("public, max-age=31536000, immutable")],
+        prune: false, // keep older hashed files so open tabs still load after a deploy
+      });
+      // index.html must always be checked, or browsers keep loading the previous version.
+      const html = new BucketDeployment(this, "WebDeployHtml", {
+        sources: [Source.asset(webDist, { exclude: ["*", "!index.html"] })],
+        destinationBucket: webBucket,
+        cacheControl: [CacheControl.fromString("no-cache")],
+        prune: false,
         distribution,
         distributionPaths: ["/*"],
       });
+      html.node.addDependency(assets);
     }
 
     new CfnOutput(this, "AppUrl", { value: `https://${distribution.distributionDomainName}` });
