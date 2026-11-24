@@ -42,6 +42,9 @@ export function HomePage() {
             : `${count} ${count === 1 ? "post needs" : "posts need"} your OK.`}
       </PageHeader>
 
+      {/* First thing on the page, so asking for a post never needs scrolling. */}
+      <RequestBox />
+
       {next && (
         <p className="meta">
           Next up: <Link to={`/drafts/${next.draft_id}`}>{formatWhen(draftDate(next))}</Link>
@@ -58,8 +61,6 @@ export function HomePage() {
           ))}
         </section>
       )}
-
-      <RequestBox />
     </div>
   );
 }
