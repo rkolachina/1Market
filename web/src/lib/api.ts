@@ -122,3 +122,26 @@ export async function uploadToS3(url: string, file: File): Promise<void> {
   });
   if (!res.ok) throw new ApiError(res.status, "We couldn't upload your photo. Please try again.");
 }
+
+/** A recommended post idea (Recommendations page). */
+export interface Idea {
+  id: string;
+  title: string;
+  why_now: string;
+  /** What gets sent to the assistant; the owner can edit it first. */
+  request: string;
+  post_type: string;
+  /** YYYY-MM-DD */
+  suggested_date: string;
+  wants_photo: boolean;
+  used?: boolean;
+}
+
+export interface IdeasState {
+  status: "none" | "running" | "done" | "failed";
+  items: Idea[];
+  generated_at: string | null;
+  error?: string;
+  /** Older than a week: time for fresh ideas. */
+  expired: boolean;
+}

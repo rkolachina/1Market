@@ -1,11 +1,13 @@
-import { CalendarBlank, House, Rows, SignOut, Storefront } from "@phosphor-icons/react";
+import { CalendarBlank, House, Lightbulb, Rows, SignOut, Storefront } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { authEnabled } from "../lib/auth";
 import { useSession } from "../lib/session";
 
-const TABS: { to: string; label: string; icon: Icon; end?: boolean }[] = [
+// `short` is the phone tab label where the full one doesn't fit five across.
+const TABS: { to: string; label: string; short?: string; icon: Icon; end?: boolean }[] = [
   { to: "/", label: "Home", icon: House, end: true },
+  { to: "/ideas", label: "Recommendations", short: "Ideas", icon: Lightbulb },
   { to: "/calendar", label: "Calendar", icon: CalendarBlank },
   { to: "/posts", label: "Posts", icon: Rows },
   { to: "/business", label: "Business", icon: Storefront },
@@ -39,13 +41,13 @@ export function AppLayout() {
 
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t border-rule bg-card pb-[max(env(safe-area-inset-bottom),12px)] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-56 lg:flex-col lg:border-r lg:border-t-0 lg:pb-0"
+        className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-rule bg-card pb-[max(env(safe-area-inset-bottom),12px)] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-56 lg:flex-col lg:border-r lg:border-t-0 lg:pb-0"
       >
         <div className="hidden px-4 py-6 lg:block">
           <span className="font-display text-[30px] font-bold leading-none">1Market</span>
           <span className="label-caps mt-1 block">Post desk</span>
         </div>
-        {TABS.map(({ to, label, icon: TabIcon, end }) => (
+        {TABS.map(({ to, label, short, icon: TabIcon, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -61,7 +63,14 @@ export function AppLayout() {
             {({ isActive }) => (
               <>
                 <TabIcon size={24} weight={isActive ? "fill" : "regular"} aria-hidden="true" />
-                {label}
+                {short ? (
+                  <>
+                    <span className="lg:hidden">{short}</span>
+                    <span className="hidden lg:inline">{label}</span>
+                  </>
+                ) : (
+                  label
+                )}
               </>
             )}
           </NavLink>

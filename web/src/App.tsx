@@ -9,6 +9,7 @@ import { BusinessPage } from "./pages/BusinessPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { DraftPage } from "./pages/DraftPage";
 import { HomePage } from "./pages/HomePage";
+import { IdeasPage } from "./pages/IdeasPage";
 import { PostsPage } from "./pages/PostsPage";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SetupPage } from "./pages/auth/SetupPage";
@@ -67,6 +68,7 @@ export default function App() {
               <Route path="setup" element={<NeedsSetup><SetupPage /></NeedsSetup>} />
               <Route element={<RequireAccount><AppLayout /></RequireAccount>}>
                 <Route index element={<HomePage />} />
+                <Route path="ideas" element={<IdeasPage />} />
                 <Route path="calendar" element={<CalendarPage />} />
                 <Route path="posts" element={<PostsPage />} />
                 <Route path="business" element={<BusinessPage />} />

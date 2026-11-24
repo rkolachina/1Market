@@ -23,6 +23,7 @@ import {
   listPosts,
   putBusiness,
   setDraftDate,
+  setIdeas,
   setProfileImport,
   setRequestStatus,
 } from "../src/db/index.js";
@@ -337,6 +338,58 @@ app.post("/media/upload-url", async (c) => {
   if (!ext) return c.json({ error: "Use a JPG, PNG or WebP photo" }, 400);
   const key = businessKey(businessId, "uploads", `${ulid()}.${ext}`);
   return c.json({ key, url: await presignedPutUrl(businessId, key, content_type) });
+});
+
+// ---- Recommendations (post ideas) ----
+// Generated in the background (~15s); the app polls GET /ideas while status is "running".
+
+const IDEAS_STALE_MS = 5 * 60 * 1000;
+const IDEAS_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+
+function ideasView(b: Business) {
+  const st = b.ideas;
+  if (!st) return { status: "none" as const, items: [], generated_at: null, expired: true };
+  const crashed = st.status === "running" && Date.now() - Date.parse(st.started_at) > IDEAS_STALE_MS;
+  return {
+    status: crashed ? ("failed" as const) : st.status,
+    items: st.items ?? [],
+    generated_at: st.generated_at ?? null,
+    error: crashed ? "We couldn't come up with ideas just now. Please try again." : st.error,
+    // Older than a week: the app asks for fresh ones.
+    expired: !st.generated_at || Date.now() - Date.parse(st.generated_at) > IDEAS_MAX_AGE_MS,
+  };
+}
+
+app.get("/ideas", async (c) => {
+  const b = await getBusiness(c.get("businessId"));
+  if (!b) return c.json({ error: "Business not found" }, 404);
+  return c.json(ideasView(b));
+});
+
+/** Come up with a new set of ideas (keeps showing the old ones until the new ones are ready). */
+app.post("/ideas/refresh", async (c) => {
+  const businessId = c.get("businessId");
+  const b = await getBusiness(businessId);
+  if (!b) return c.json({ error: "Business not found" }, 404);
+  if (ideasView(b).status === "running") return c.json(ideasView(b), 202);
+  await setIdeas(businessId, { ...(b.ideas ?? {}), status: "running", started_at: new Date().toISOString(), error: undefined });
+  await dispatchRequest({ kind: "ideas", businessId });
+  return c.json(ideasView((await getBusiness(businessId))!), 202);
+});
+
+/** The owner made a post from this idea; it's shown as used. */
+app.post("/ideas/:id/used", async (c) => {
+  const businessId = c.get("businessId");
+  const b = await getBusiness(businessId);
+  const st = b?.ideas;
+  if (!st?.items?.some((i) => i.id === c.req.param("id"))) return c.json({ error: "Idea not found" }, 404);
+  const items = st.items.map((i) => (i.id === c.req.param("id") ? { ...i, used: true } : i));
+  try {
+    await setIdeas(businessId, { ...st, items }, st.started_at);
+  } catch (err) {
+    if ((err as Error).name !== "ConditionalCheckFailedException") throw err; // a new set replaced it; nothing to mark
+  }
+  return c.json(ideasView((await getBusiness(businessId))!));
 });
 
 // ---- Assistant requests ----

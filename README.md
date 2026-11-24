@@ -31,6 +31,8 @@ Owner request ──▶ Agent (Strands + Claude) ──▶ pending draft ──�
 | Draft lifecycle: approve, edit, skip, schedule, unschedule, post now | ✅ Working |
 | Request box → assistant: drafts, clarifying questions, attached photo, requested date | ✅ Deployed (agent Lambda on an SQS queue) |
 | Agent (Strands), caption writer with fact checks, branded images | ✅ Working (Claude through the Anthropic API) |
+| Recommendations: timely post ideas (season, holidays, offers, recent posts, open dates) the owner can edit and send | ✅ Deployed |
+| Onboarding: fill in the profile from the business website (owner reviews before saving) | ✅ Deployed |
 | Scheduled posts firing on their date (EventBridge Scheduler → publisher Lambda) | ✅ Deployed |
 | AI background images (Nano Banana / Gemini) | ✅ Working (layout still to polish; one square size for every platform) |
 | Instagram and Google Business Profile publishing | ⏳ Planned |

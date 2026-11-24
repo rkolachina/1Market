@@ -36,11 +36,22 @@ export function RequestBox() {
   return activeId ? <RequestProgress id={activeId} onDone={() => start(null)} /> : <RequestForm onSent={start} />;
 }
 
-function RequestForm({ onSent }: { onSent: (id: string) => void }) {
+/** The request form. `initial` pre-fills it (e.g. from a recommended idea). */
+export function RequestForm({
+  onSent,
+  initial,
+  heading = "What should we post about?",
+  onCancel,
+}: {
+  onSent: (id: string) => void;
+  initial?: { text: string; date?: string };
+  heading?: string;
+  onCancel?: () => void;
+}) {
   const id = useId();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initial?.text ?? "");
   const [photo, setPhoto] = useState<File | null>(null);
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(initial?.date ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -71,11 +82,11 @@ function RequestForm({ onSent }: { onSent: (id: string) => void }) {
       }}
     >
       <label htmlFor={`${id}-text`} className="font-display text-[24px] font-bold leading-tight">
-        What should we post about?
+        {heading}
       </label>
       <textarea
         id={`${id}-text`}
-        rows={3}
+        rows={initial ? 5 : 3}
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="e.g. we're closed Thanksgiving Day, or show off this job"
@@ -101,7 +112,7 @@ function RequestForm({ onSent }: { onSent: (id: string) => void }) {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <input
           ref={fileRef}
           type="file"
@@ -120,16 +131,24 @@ function RequestForm({ onSent }: { onSent: (id: string) => void }) {
           <Camera size={20} aria-hidden="true" />
           {photo ? "Change photo" : "Add photo"}
         </button>
-        <button type="submit" className="btn-primary" disabled={!text.trim() || send.isPending}>
-          {send.isPending ? "Sending…" : "Send"}
-          <ArrowRight size={20} aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onCancel && (
+            <button type="button" className="btn-text" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+          <button type="submit" className="btn-primary" disabled={!text.trim() || send.isPending}>
+            {send.isPending ? "Sending…" : initial ? "Make this post" : "Send"}
+            <ArrowRight size={20} aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </form>
   );
 }
 
-function RequestProgress({ id, onDone }: { id: string; onDone: () => void }) {
+/** How a sent request is going: working, questions to answer, failed, or the finished draft. */
+export function RequestProgress({ id, onDone }: { id: string; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const answersId = useId();

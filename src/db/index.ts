@@ -44,6 +44,16 @@ export interface ProfileImport {
   error?: string;
 }
 
+/** Post ideas for the Recommendations page (generated in the background). */
+export interface IdeasState {
+  status: "running" | "done" | "failed";
+  started_at: string;
+  generated_at?: string;
+  /** See src/ideas/generate.ts (Idea). */
+  items?: Record<string, unknown>[];
+  error?: string;
+}
+
 export interface Business {
   business_id: string;
   name: string;
@@ -51,6 +61,7 @@ export interface Business {
   brand_kit?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   profile_import?: ProfileImport;
+  ideas?: IdeasState;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +134,21 @@ export async function setProfileImport(
         ...(value ? { ":v": value } : {}),
         ...(onlyIf ? { ":s": onlyIf.status, ":u": onlyIf.url } : {}),
       },
+    }),
+  );
+}
+
+/** Set the ideas state. With `onlyIfStartedAt`, only while that run is still the current one. */
+export async function setIdeas(businessId: string, value: IdeasState, onlyIfStartedAt?: string): Promise<void> {
+  await doc.send(
+    new UpdateCommand({
+      TableName: TABLES.businesses,
+      Key: { business_id: requireBusinessId(businessId) },
+      UpdateExpression: "SET ideas = :v",
+      ConditionExpression: onlyIfStartedAt
+        ? "attribute_exists(business_id) AND ideas.started_at = :s"
+        : "attribute_exists(business_id)",
+      ExpressionAttributeValues: { ":v": value, ...(onlyIfStartedAt ? { ":s": onlyIfStartedAt } : {}) },
     }),
   );
 }
