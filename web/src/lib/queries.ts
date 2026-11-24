@@ -11,6 +11,7 @@ type Action =
   | { kind: "approve" }
   | { kind: "post-now" }
   | { kind: "skip" }
+  | { kind: "restore" }
   | { kind: "unschedule" }
   | { kind: "caption"; platform: Platform; caption: string }
   | { kind: "date"; target_date: string };

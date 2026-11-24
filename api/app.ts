@@ -28,7 +28,7 @@ import {
   setRequestStatus,
 } from "../src/db/index.js";
 import { normalizeWebsite } from "../src/profile/import.js";
-import { DraftError, approve, editCaption, skip, transition } from "../src/drafts/service.js";
+import { DraftError, approve, editCaption, restore, skip, transition } from "../src/drafts/service.js";
 import { businessKey, presignedGetUrl, presignedPutUrl, putMedia } from "../src/media/index.js";
 import { dispatchRequest } from "../src/requests/dispatch.js";
 import { cancelPublish, schedulePublish } from "../src/schedule/index.js";
@@ -294,6 +294,13 @@ app.post("/drafts/:id/skip", async (c) => {
   const id = c.req.param("id");
   await cancelPublish(id);
   const d = await skip(businessId, id);
+  return c.json(await withImageUrls(businessId, d));
+});
+
+/** Skipped by mistake: back to "needs your OK" (or "missed" if its date has passed). */
+app.post("/drafts/:id/restore", async (c) => {
+  const businessId = c.get("businessId");
+  const d = await restore(businessId, c.req.param("id"));
   return c.json(await withImageUrls(businessId, d));
 });
 

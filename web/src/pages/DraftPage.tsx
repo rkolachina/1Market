@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowSquareOut, CalendarBlank, FacebookLogo, GoogleLogo, InstagramLogo } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CalendarBlank, FacebookLogo, GoogleLogo, InstagramLogo } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { useEffect, useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -211,7 +211,7 @@ function DraftEditor({ draft }: { draft: Draft }) {
       )}
 
       {/* Sticky action bar */}
-      {(editable || draft.status === "scheduled" || draft.status === "failed") && (
+      {(editable || draft.status === "scheduled" || draft.status === "failed" || draft.status === "skipped") && (
         <div className="fixed inset-x-0 bottom-[76px] z-10 border-t border-rule bg-card/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:left-56">
           <div className="mx-auto flex max-w-[640px] flex-wrap items-center gap-2">
             {status === "needs-ok" && (
@@ -233,6 +233,20 @@ function DraftEditor({ draft }: { draft: Draft }) {
               <button type="button" className="btn-primary grow" disabled={busy} onClick={() => run({ kind: "post-now" }, "Posted to Facebook.")}>
                 {busy ? "Trying again…" : "Try again"}
               </button>
+            )}
+            {draft.status === "skipped" && (
+              <>
+                <p className="grow text-[15px]">You skipped this post.</p>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={busy}
+                  onClick={() => run({ kind: "restore" }, "Moved back to Needs your OK.")}
+                >
+                  <ArrowCounterClockwise size={20} aria-hidden="true" />
+                  {busy ? "Bringing it back…" : "Bring it back"}
+                </button>
+              </>
             )}
             {draft.status === "scheduled" && (
               <>

@@ -3,7 +3,7 @@
 //   pending ──approve──▶ approved ──publish──▶ publishing ──▶ posted
 //      │                    │                      │
 //      ├──schedule──▶ scheduled ──(at time)──▶ publishing └──▶ failed ──retry──▶ publishing
-//      ├──skip──▶ skipped
+//      ├──skip──▶ skipped ──restore──▶ pending
 //      └──expire──▶ expired
 
 import {
@@ -23,7 +23,7 @@ export const TRANSITIONS: Record<DraftStatus, DraftStatus[]> = {
   publishing: ["posted", "failed"],
   failed: ["publishing", "skipped"],
   posted: [],
-  skipped: [],
+  skipped: ["pending"], // the owner changed their mind
   expired: [],
 };
 
@@ -63,6 +63,8 @@ export async function transition(
 
 export const approve = (b: string, d: string) => transition(b, d, "approved");
 export const skip = (b: string, d: string) => transition(b, d, "skipped");
+/** Bring a skipped draft back to "needs your OK". */
+export const restore = (b: string, d: string) => transition(b, d, "pending");
 
 export function schedule(businessId: string, draftId: string, scheduledAt: Date): Promise<Draft> {
   if (scheduledAt.getTime() <= Date.now()) throw new DraftError("scheduled time must be in the future");
