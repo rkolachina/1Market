@@ -15,7 +15,8 @@
     "api": "AWS_REGION=us-east-1 tsx watch --env-file-if-exists=.env api/dev.ts",
     "web": "cd web && npx vite",
     "seed:drafts": "AWS_REGION=us-east-1 tsx scripts/seed-drafts.ts",
-    "link-user": "AWS_REGION=us-east-1 tsx --env-file=.env scripts/link-user.ts"
+    "link-user": "AWS_REGION=us-east-1 tsx --env-file=.env scripts/link-user.ts",
+    "connect-facebook": "AWS_REGION=us-east-1 tsx --env-file=.env scripts/connect-facebook.ts"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.164",
@@ -36,6 +37,7 @@
     "@aws-sdk/client-sqs": "^3.1176.0",
     "@aws-sdk/lib-dynamodb": "^3.1171.0",
     "@aws-sdk/s3-request-presigner": "^3.1171.0",
+    "@aws-sdk/util-dynamodb": "^3.996.9",
     "@google/genai": "^2.32.0",
     "@hono/node-server": "^2.1.9",
     "@strands-agents/sdk": "^1.25.0",

@@ -3,7 +3,7 @@
 
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { config } from "../config.js";
-import { type Draft, type Platform, getDraft, recordPost } from "../db/index.js";
+import { type Business, type Draft, type Platform, getBusiness, getDraft, recordPost } from "../db/index.js";
 import { DraftError, transition } from "../drafts/service.js";
 import { presignedGetUrl } from "../media/index.js";
 
@@ -29,9 +29,18 @@ interface PlatformResult {
 /** Platforms we can publish to right now. */
 const SUPPORTED: Platform[] = ["facebook"];
 
+/** The business's Facebook Page, or a DraftError the owner can understand. */
+export function facebookPageOf(business: Business | undefined): { page_id: string; page_name?: string } {
+  const fb = business?.connections?.facebook;
+  if (!fb?.page_id) throw new DraftError("Your Facebook Page isn't connected yet. We'll let you know as soon as it is.");
+  return fb;
+}
+
 async function publishFacebook(draft: Draft): Promise<PlatformResult> {
   const caption = draft.copy.facebook?.caption;
   if (!caption) throw new Error("Draft has no Facebook caption");
+  // Every business posts to its own Page: Make maps page_id into the Facebook module.
+  const page = facebookPageOf(await getBusiness(draft.business_id));
 
   const imageKey = draft.image_keys?.[0];
   const imageUrl = imageKey ? await presignedGetUrl(draft.business_id, imageKey, 3600) : "";
@@ -43,6 +52,7 @@ async function publishFacebook(draft: Draft): Promise<PlatformResult> {
       business_id: draft.business_id,
       draft_id: draft.draft_id,
       platform: "facebook",
+      page_id: page.page_id,
       caption,
       image_url: imageUrl,
     }),

@@ -460,13 +460,21 @@ function BusinessForm({ profile }: { profile: Profile }) {
               <div className="flex grow flex-col">
                 <span className="font-bold">Facebook</span>
                 <span className="text-[13px] text-ink-muted">
-                  Posting to your Page
+                  {profile.connections?.facebook
+                    ? `Posting to ${profile.connections.facebook.page_name ?? "your Page"}`
+                    : "We'll connect your Page with you. Until then, posts can't go out."}
                 </span>
               </div>
-              <span className="inline-flex items-center gap-1 text-[15px] font-bold text-olive">
-                <CheckCircle size={20} weight="fill" aria-hidden="true" />{" "}
-                Connected
-              </span>
+              {profile.connections?.facebook ? (
+                <span className="inline-flex items-center gap-1 text-[15px] font-bold text-olive">
+                  <CheckCircle size={20} weight="fill" aria-hidden="true" />{" "}
+                  Connected
+                </span>
+              ) : (
+                <span className="label-caps shrink-0 rounded-full bg-mustard-soft px-2.5 py-1 text-ink">
+                  Not yet
+                </span>
+              )}
             </li>
             {[
               { label: "Instagram", icon: InstagramLogo },

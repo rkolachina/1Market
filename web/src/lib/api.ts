@@ -54,6 +54,8 @@ export interface Profile {
   logo_url: string | null;
   /** Filling in the profile from the business's website. */
   profile_import: ProfileImport | null;
+  /** Where posts go. Set up by 1Market, not editable here. */
+  connections: { facebook: { page_name: string | null } | null };
 }
 
 export interface ImportedProfile {

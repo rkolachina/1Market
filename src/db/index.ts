@@ -44,6 +44,13 @@ export interface ProfileImport {
   error?: string;
 }
 
+/** The Facebook Page a business posts to (through Make for now). */
+export interface FacebookConnection {
+  page_id: string;
+  page_name?: string;
+  connected_at: string;
+}
+
 /** Post ideas for the Recommendations page (generated in the background). */
 export interface IdeasState {
   status: "running" | "done" | "failed";
@@ -62,6 +69,8 @@ export interface Business {
   settings?: Record<string, unknown>;
   profile_import?: ProfileImport;
   ideas?: IdeasState;
+  /** Where this business publishes. Set by an admin only (never through the profile form). */
+  connections?: { facebook?: FacebookConnection };
   created_at: string;
   updated_at: string;
 }
@@ -149,6 +158,20 @@ export async function setIdeas(businessId: string, value: IdeasState, onlyIfStar
         ? "attribute_exists(business_id) AND ideas.started_at = :s"
         : "attribute_exists(business_id)",
       ExpressionAttributeValues: { ":v": value, ...(onlyIfStartedAt ? { ":s": onlyIfStartedAt } : {}) },
+    }),
+  );
+}
+
+/** Admin: set (or with null, remove) the Facebook Page a business posts to. */
+export async function setFacebookConnection(businessId: string, value: FacebookConnection | null): Promise<void> {
+  await doc.send(
+    new UpdateCommand({
+      TableName: TABLES.businesses,
+      Key: { business_id: requireBusinessId(businessId) },
+      ConditionExpression: "attribute_exists(business_id)",
+      // connections may not exist yet, so set the whole map.
+      UpdateExpression: value ? "SET connections = :c, updated_at = :now" : "REMOVE connections SET updated_at = :now",
+      ExpressionAttributeValues: { ":now": new Date().toISOString(), ...(value ? { ":c": { facebook: value } } : {}) },
     }),
   );
 }

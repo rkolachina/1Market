@@ -32,7 +32,7 @@ import { DraftError, approve, editCaption, restore, skip, transition } from "../
 import { businessKey, presignedGetUrl, presignedPutUrl, putMedia } from "../src/media/index.js";
 import { dispatchRequest } from "../src/requests/dispatch.js";
 import { cancelPublish, schedulePublish } from "../src/schedule/index.js";
-import { publish } from "../src/publish/index.js";
+import { facebookPageOf, publish } from "../src/publish/index.js";
 
 type Env = { Variables: { businessId: string; user: AuthUser } };
 
@@ -136,6 +136,7 @@ async function profileResponse(b: Business) {
     settings: b.settings ?? {},
     logo_url,
     profile_import: importView(b),
+    connections: { facebook: b.connections?.facebook ? { page_name: b.connections.facebook.page_name ?? null } : null },
   };
 }
 
@@ -232,6 +233,7 @@ app.post("/drafts/:id/approve", async (c) => {
   const id = c.req.param("id");
   const draft = await getDraft(businessId, id);
   if (!draft) return c.json({ error: "Draft not found" }, 404);
+  facebookPageOf(await getBusiness(businessId)); // nowhere to post yet → clear error, nothing changes
   const when = draft.target_date ? new Date(draft.target_date) : undefined;
   if (when && when.getTime() > Date.now() + 60_000) {
     // Schedule first: if the status write then fails, the publisher skips drafts that aren't "scheduled".
@@ -250,6 +252,7 @@ app.post("/drafts/:id/post-now", async (c) => {
   const id = c.req.param("id");
   const draft = await getDraft(businessId, id);
   if (!draft) return c.json({ error: "Draft not found" }, 404);
+  facebookPageOf(await getBusiness(businessId));
   if (draft.status === "pending") await approve(businessId, id);
   if (draft.status === "scheduled") await cancelPublish(id);
   const d = await publish(businessId, id);
