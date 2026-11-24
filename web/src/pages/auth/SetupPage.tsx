@@ -10,13 +10,14 @@ export function SetupPage() {
   const navigate = useNavigate();
   const session = useSession();
   const [name, setName] = useState("");
+  const [website, setWebsite] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
   return (
     <AuthLayout
       title="Name your business"
-      intro="This is how we'll refer to you in your posts. You can change it later."
+      intro="Tell us who you are. You can change any of this later."
       footer={
         <button type="button" className="btn-text" onClick={() => session.signOut()}>
           Log out
@@ -30,9 +31,13 @@ export function SetupPage() {
           setError(undefined);
           setBusy(true);
           try {
-            await api.post("/account/setup", { business_name: name.trim() });
+            const res = await api.post<{ importing: boolean }>("/account/setup", {
+              business_name: name.trim(),
+              website: website.trim() || undefined,
+            });
             await session.refresh(true);
-            navigate("/", { replace: true });
+            // With a website, go watch the profile fill itself in.
+            navigate(res.importing ? "/business" : "/", { replace: true });
           } catch (err) {
             setError((err as Error).message);
           } finally {
@@ -41,6 +46,13 @@ export function SetupPage() {
         }}
       >
         <TextField label="Business name" value={name} onChange={setName} placeholder="Brightside Gutter & Window Co." />
+        <TextField
+          label="Website (optional)"
+          value={website}
+          onChange={setWebsite}
+          placeholder="yourbusiness.com"
+          help="We'll read it and fill in your services, prices and contact details. You check everything before it's saved."
+        />
         <FormError message={error} />
         <button type="submit" className="btn-primary" disabled={busy || !name.trim()}>
           {busy ? "Setting up…" : "Continue"}

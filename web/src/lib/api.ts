@@ -52,6 +52,31 @@ export interface Profile {
   brand_kit: Record<string, unknown>;
   settings: Record<string, unknown>;
   logo_url: string | null;
+  /** Filling in the profile from the business's website. */
+  profile_import: ProfileImport | null;
+}
+
+export interface ImportedProfile {
+  name: string;
+  tagline: string;
+  description: string;
+  phone: string;
+  email: string;
+  booking_url: string;
+  hours: string;
+  services: { name: string; price: string; notes: string }[];
+  current_offers: { name: string; details: string; valid_until: string }[];
+  service_area: string[];
+  differentiators: string[];
+  tone_of_voice: string;
+  audience: string;
+}
+
+export interface ProfileImport {
+  status: "running" | "done" | "failed";
+  url: string;
+  result?: ImportedProfile;
+  error?: string;
 }
 
 export interface Draft {

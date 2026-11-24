@@ -32,12 +32,25 @@ function requireBusinessId(businessId: string): string {
 
 // ---------- Businesses ----------
 
+/** Filling in the profile from the business's website (reviewed by the owner before saving). */
+export interface ProfileImport {
+  status: "running" | "done" | "failed";
+  url: string;
+  started_at: string;
+  finished_at?: string;
+  /** Imported fields (see src/profile/import.ts), shown to the owner to review. */
+  result?: Record<string, unknown>;
+  /** Owner-facing message when status is failed. */
+  error?: string;
+}
+
 export interface Business {
   business_id: string;
   name: string;
   profile?: Record<string, unknown>;
   brand_kit?: Record<string, unknown>;
   settings?: Record<string, unknown>;
+  profile_import?: ProfileImport;
   created_at: string;
   updated_at: string;
 }
@@ -85,6 +98,33 @@ export async function getBusiness(businessId: string): Promise<Business | undefi
     }),
   );
   return res.Item as Business | undefined;
+}
+
+/**
+ * Set (or with null, clear) the website import on a business. With `onlyIf`, it only
+ * writes while the import is still that status and URL (so a stale run can't overwrite a newer one).
+ */
+export async function setProfileImport(
+  businessId: string,
+  value: ProfileImport | null,
+  onlyIf?: { status: ProfileImport["status"]; url: string },
+): Promise<void> {
+  await doc.send(
+    new UpdateCommand({
+      TableName: TABLES.businesses,
+      Key: { business_id: requireBusinessId(businessId) },
+      UpdateExpression: value ? "SET profile_import = :v, updated_at = :now" : "REMOVE profile_import SET updated_at = :now",
+      ConditionExpression: onlyIf
+        ? "attribute_exists(business_id) AND profile_import.#s = :s AND profile_import.#u = :u"
+        : "attribute_exists(business_id)",
+      ExpressionAttributeNames: onlyIf ? { "#s": "status", "#u": "url" } : undefined,
+      ExpressionAttributeValues: {
+        ":now": new Date().toISOString(),
+        ...(value ? { ":v": value } : {}),
+        ...(onlyIf ? { ":s": onlyIf.status, ":u": onlyIf.url } : {}),
+      },
+    }),
+  );
 }
 
 // ---------- Drafts ----------

@@ -1,12 +1,11 @@
-import { CheckCircle, FacebookLogo, GoogleLogo, InstagramLogo, UploadSimple } from "@phosphor-icons/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle, CircleNotch, FacebookLogo, Globe, GoogleLogo, InstagramLogo, UploadSimple } from "@phosphor-icons/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ListEditor, Section, TagInput, TextArea, TextField } from "../components/Fields";
 import { ErrorBlock, LoadingBlock, PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
-import { api, type Profile } from "../lib/api";
+import { api, type ImportedProfile, type Profile } from "../lib/api";
 import { authEnabled } from "../lib/auth";
-import { useProfile } from "../lib/queries";
 import { useSession } from "../lib/session";
 
 type Service = { name: string; price: string; notes: string };
@@ -91,7 +90,12 @@ function toPayload(f: Form, p: Profile) {
 }
 
 export function BusinessPage() {
-  const profile = useProfile();
+  // Same cache as useProfile; checks every 3s while the website is being read.
+  const profile = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => api.get<Profile>("/profile"),
+    refetchInterval: (q) => (q.state.data?.profile_import?.status === "running" ? 3000 : false),
+  });
   if (profile.isLoading) return <LoadingBlock label="Loading your business…" />;
   if (profile.isError) return <ErrorBlock message={profile.error.message} onRetry={() => profile.refetch()} />;
   return <BusinessForm profile={profile.data!} />;
@@ -101,11 +105,25 @@ function BusinessForm({ profile }: { profile: Profile }) {
   const ids = useId();
   const qc = useQueryClient();
   const toast = useToast();
-  const initial = useMemo(() => toForm(profile), [profile]);
+  // Keyed on the saved data, so a background refresh with nothing new doesn't wipe edits.
+  const savedKey = JSON.stringify([profile.name, profile.profile, profile.brand_kit]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initial = useMemo(() => toForm(profile), [savedKey]);
   const [form, setForm] = useState<Form>(initial);
   useEffect(() => setForm(initial), [initial]);
   const set = <K extends keyof Form>(k: K) => (v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+
+  // When a website import finishes, fill the form once (the owner reviews, then saves).
+  const imp = profile.profile_import;
+  const merged = useRef<string | null>(null);
+  useEffect(() => {
+    if (imp?.status !== "done" || !imp.result) return;
+    const key = `${imp.url}|${JSON.stringify(imp.result).length}`;
+    if (merged.current === key) return;
+    merged.current = key;
+    setForm((f) => mergeImport(f, imp.result!));
+  }, [imp, initial]);
 
   const save = useMutation({
     mutationFn: () => api.put<Profile>("/profile", toPayload(form, profile)),
@@ -135,6 +153,15 @@ function BusinessForm({ profile }: { profile: Profile }) {
       }}
     >
       <PageHeader title="Your business">Everything here shapes your posts. Keep prices and offers current.</PageHeader>
+
+      <WebsiteImport
+        profile={profile}
+        website={form.website}
+        onDiscard={() => {
+          merged.current = null;
+          setForm(initial);
+        }}
+      />
 
       <Section title="Basics">
         <TextField label="Business name" value={form.name} onChange={set("name")} />
@@ -307,5 +334,134 @@ function AccountSection() {
         )}
       </div>
     </Section>
+  );
+}
+
+/** Fill empty fields from a website import; lists keep what's there and add new items. */
+function mergeImport(f: Form, r: ImportedProfile): Form {
+  const fill = (cur: string, next: string) => (cur.trim() ? cur : next ?? "");
+  const union = (cur: string[], next: string[]) => [...cur, ...(next ?? []).filter((x) => !cur.some((c) => c.toLowerCase() === x.toLowerCase()))];
+  const newByName = <T extends { name: string }>(cur: T[], next: T[]) =>
+    [...cur, ...(next ?? []).filter((x) => x.name.trim() && !cur.some((c) => c.name.toLowerCase() === x.name.toLowerCase()))];
+  return {
+    ...f,
+    name: fill(f.name, r.name),
+    tagline: fill(f.tagline, r.tagline),
+    description: fill(f.description, r.description),
+    phone: fill(f.phone, r.phone),
+    email: fill(f.email, r.email),
+    booking_url: fill(f.booking_url, r.booking_url),
+    hours: fill(f.hours, r.hours),
+    services: newByName(f.services, r.services),
+    offers: newByName(f.offers, r.current_offers),
+    service_area: union(f.service_area, r.service_area),
+    differentiators: union(f.differentiators, r.differentiators),
+    tone_of_voice: fill(f.tone_of_voice, r.tone_of_voice),
+    audience: fill(f.audience, r.audience),
+  };
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
+/** "Fill in from your website": start an import, show progress, then ask the owner to check it. */
+function WebsiteImport({ profile, website, onDiscard }: { profile: Profile; website: string; onDiscard: () => void }) {
+  const id = useId();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const imp = profile.profile_import;
+  const [url, setUrl] = useState(website);
+  useEffect(() => setUrl((u) => u || website), [website]);
+
+  const start = useMutation({
+    mutationFn: (u: string) => api.post<Profile>("/profile/import", { url: u }),
+    onSuccess: (p) => qc.setQueryData(["profile"], p),
+    onError: (e) => toast(e.message, "error"),
+  });
+  const dismiss = useMutation({
+    mutationFn: () => api.post<Profile>("/profile/import/dismiss"),
+    onSuccess: (p) => {
+      qc.setQueryData(["profile"], p);
+      onDiscard();
+    },
+    onError: (e) => toast(e.message, "error"),
+  });
+
+  if (imp?.status === "running") {
+    return (
+      <div role="status" aria-live="polite" className="card flex flex-col gap-1 p-4">
+        <p className="flex items-center gap-2 font-bold">
+          <CircleNotch size={22} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+          Reading {hostOf(imp.url)}…
+        </p>
+        <p className="text-ink-muted">This takes about a minute. You can leave this page and come back.</p>
+      </div>
+    );
+  }
+
+  if (imp?.status === "done") {
+    return (
+      <div role="status" className="flex flex-col gap-3 rounded-[16px] border border-mustard bg-mustard-soft p-4">
+        <p className="font-bold">We filled in what we found on {hostOf(imp.url)}.</p>
+        <p>
+          Check it below, especially services, prices and offers. Your posts will only use what's saved here. Nothing is saved until you
+          tap Save changes.
+        </p>
+        <div>
+          <button type="button" className="btn-text" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>
+            Don't use it
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="card flex flex-col gap-3 p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (url.trim()) start.mutate(url.trim());
+      }}
+    >
+      {imp?.status === "failed" && (
+        <p role="alert" className="text-brick">
+          {imp.error}
+        </p>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={`${id}-url`} className="flex items-center gap-2 text-[15px] font-bold">
+          <Globe size={20} aria-hidden="true" /> Fill in from your website
+        </label>
+        <input
+          id={`${id}-url`}
+          inputMode="url"
+          autoComplete="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="yourbusiness.com"
+          aria-describedby={`${id}-help`}
+          className="min-h-12 rounded-[10px] border border-rule bg-paper px-3 text-[17px] placeholder:text-ink-muted"
+        />
+        <p id={`${id}-help`} className="text-[13px] text-ink-muted">
+          We'll read your site and fill in empty fields. You check everything before it's saved.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="submit" className="btn-secondary" disabled={!url.trim() || start.isPending}>
+          {start.isPending ? "Starting…" : imp?.status === "failed" ? "Try again" : "Fill in"}
+        </button>
+        {imp?.status === "failed" && (
+          <button type="button" className="btn-text" onClick={() => dismiss.mutate()}>
+            Dismiss
+          </button>
+        )}
+      </div>
+    </form>
   );
 }

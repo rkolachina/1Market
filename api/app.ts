@@ -23,8 +23,10 @@ import {
   listPosts,
   putBusiness,
   setDraftDate,
+  setProfileImport,
   setRequestStatus,
 } from "../src/db/index.js";
+import { normalizeWebsite } from "../src/profile/import.js";
 import { DraftError, approve, editCaption, skip, transition } from "../src/drafts/service.js";
 import { businessKey, presignedGetUrl, presignedPutUrl, putMedia } from "../src/media/index.js";
 import { dispatchRequest } from "../src/requests/dispatch.js";
@@ -70,21 +72,31 @@ app.get("/account", (c) => {
   return c.json({ email: u.email, name: u.name ?? null, business_id: u.businessId ?? null, auth: authEnabled });
 });
 
-const Setup = z.object({ business_name: z.string().trim().min(1).max(120) });
+const Setup = z.object({ business_name: z.string().trim().min(1).max(120), website: z.string().trim().max(300).optional() });
 
 /** First login after sign-up: create the owner's business and link it to their login. */
 app.post("/account/setup", async (c) => {
   const user = c.get("user");
   if (user.businessId) return c.json({ error: "Your business is already set up." }, 409);
-  const { business_name } = Setup.parse(await c.req.json());
+  const { business_name, website: rawWebsite } = Setup.parse(await c.req.json());
+  let website: string | undefined;
+  if (rawWebsite) {
+    try {
+      website = normalizeWebsite(rawWebsite);
+    } catch {
+      return c.json({ error: "Enter a website address like yourbusiness.com" }, 400);
+    }
+  }
   const business = await createBusiness({
     name: business_name,
-    profile: {},
+    profile: website ? { website } : {},
     brand_kit: { colors: { primary: "#2B2420", accent: "#E3D6BF" } },
     settings: { platforms: ["facebook"], timezone: "America/New_York", owner_sub: user.sub },
   });
   await setUserBusiness(user.username, business.business_id);
-  return c.json({ business_id: business.business_id }, 201);
+  // With a website, start filling in the profile from it right away.
+  if (website) await startProfileImport(business.business_id, website);
+  return c.json({ business_id: business.business_id, importing: Boolean(website) }, 201);
 });
 
 app.onError((err, c) => {
@@ -100,10 +112,35 @@ async function withImageUrls(businessId: string, d: Draft) {
   return { ...d, image_urls };
 }
 
+/** Reading a website takes a minute or two; one still "running" after 10 minutes crashed. */
+const IMPORT_STALE_MS = 10 * 60 * 1000;
+
+function importView(b: Business) {
+  const imp = b.profile_import;
+  if (!imp) return null;
+  if (imp.status === "running" && Date.now() - Date.parse(imp.started_at) > IMPORT_STALE_MS) {
+    return { status: "failed" as const, url: imp.url, error: "We couldn't read that website. Please try again, or fill in the details yourself." };
+  }
+  return { status: imp.status, url: imp.url, result: imp.result, error: imp.error };
+}
+
 async function profileResponse(b: Business) {
   const kit = (b.brand_kit ?? {}) as { logo_key?: string };
   const logo_url = kit.logo_key ? await presignedGetUrl(b.business_id, kit.logo_key, 3600) : null;
-  return { business_id: b.business_id, name: b.name, profile: b.profile ?? {}, brand_kit: b.brand_kit ?? {}, settings: b.settings ?? {}, logo_url };
+  return {
+    business_id: b.business_id,
+    name: b.name,
+    profile: b.profile ?? {},
+    brand_kit: b.brand_kit ?? {},
+    settings: b.settings ?? {},
+    logo_url,
+    profile_import: importView(b),
+  };
+}
+
+async function startProfileImport(businessId: string, url: string) {
+  await setProfileImport(businessId, { status: "running", url, started_at: new Date().toISOString() });
+  await dispatchRequest({ kind: "profile_import", businessId });
 }
 
 // ---- Profile ----
@@ -133,8 +170,33 @@ app.put("/profile", async (c) => {
     settings: body.settings ?? existing.settings,
     business_id: businessId, // always from the session
     created_at: existing.created_at,
+    // Saving means the owner has reviewed a finished website import, so it's done with.
+    profile_import: existing.profile_import?.status === "running" ? existing.profile_import : undefined,
   });
   return c.json(await profileResponse(saved));
+});
+
+/** Fill in the profile from a website (runs in the background; GET /profile shows progress). */
+app.post("/profile/import", async (c) => {
+  const businessId = c.get("businessId");
+  const { url } = z.object({ url: z.string().trim().min(1).max(300) }).parse(await c.req.json());
+  let website: string;
+  try {
+    website = normalizeWebsite(url);
+  } catch {
+    return c.json({ error: "Enter a website address like yourbusiness.com" }, 400);
+  }
+  await startProfileImport(businessId, website);
+  const b = await getBusiness(businessId);
+  return c.json(await profileResponse(b!), 202);
+});
+
+/** Throw away a website import without using it. */
+app.post("/profile/import/dismiss", async (c) => {
+  const businessId = c.get("businessId");
+  await setProfileImport(businessId, null);
+  const b = await getBusiness(businessId);
+  return c.json(await profileResponse(b!));
 });
 
 // ---- Drafts ----
